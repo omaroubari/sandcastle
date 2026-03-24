@@ -4,8 +4,6 @@ import { spawn } from "node:child_process";
 import { access } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { readConfig } from "./Config.js";
-import { DockerSandbox } from "./DockerSandbox.js";
-import { FilesystemSandbox } from "./FilesystemSandbox.js";
 import { DEFAULT_MODEL } from "./Orchestrator.js";
 import {
   buildImage,
@@ -18,29 +16,13 @@ import { getAgentProvider } from "./AgentProvider.js";
 import { AgentError, ConfigDirError, InitError } from "./errors.js";
 import { DockerSandboxFactory, SandboxFactory } from "./SandboxFactory.js";
 import { withSandboxLifecycle } from "./SandboxLifecycle.js";
-import { syncIn, syncOut } from "./SyncService.js";
 import { resolveEnv } from "./EnvResolver.js";
 
 // --- Shared options ---
 
-const sandboxDirOption = Options.directory("sandbox-dir").pipe(
-  Options.withDescription("Path to the sandbox directory"),
-);
-
 const containerOption = Options.text("container").pipe(
   Options.withDescription("Docker container name"),
   Options.withDefault("claude-sandbox"),
-);
-
-const containerOptional = Options.text("container").pipe(
-  Options.withDescription("Docker container name (use Docker layer)"),
-  Options.optional,
-);
-
-const baseHeadOption = Options.text("base-head").pipe(
-  Options.withDescription(
-    "The HEAD commit SHA from sync-in (used to determine new commits)",
-  ),
 );
 
 const imageNameOption = Options.text("image-name").pipe(
@@ -201,72 +183,6 @@ const cleanupSandboxCommand = Command.make(
     }),
 );
 
-// --- Sync-in command ---
-
-const SANDBOX_REPOS_DIR = "/home/agent/repos";
-
-const syncInCommand = Command.make(
-  "sync-in",
-  { sandboxDir: sandboxDirOption, container: containerOptional },
-  ({ sandboxDir, container }) =>
-    Effect.gen(function* () {
-      const hostRepoDir = process.cwd();
-      const repoName = hostRepoDir.split("/").pop()!;
-
-      const useDocker = container._tag === "Some";
-      const sandboxRepoDir = useDocker
-        ? `${SANDBOX_REPOS_DIR}/${repoName}`
-        : `${sandboxDir}/repo`;
-
-      yield* Console.log(`Syncing ${hostRepoDir} into ${sandboxRepoDir}...`);
-
-      const layer = useDocker
-        ? DockerSandbox.layer(container.value)
-        : FilesystemSandbox.layer(sandboxDir);
-
-      const { branch } = yield* syncIn(hostRepoDir, sandboxRepoDir).pipe(
-        Effect.provide(layer),
-      );
-
-      yield* Console.log(`Sync-in complete. Branch: ${branch}`);
-    }),
-);
-
-// --- Sync-out command ---
-
-const syncOutCommand = Command.make(
-  "sync-out",
-  {
-    sandboxDir: sandboxDirOption,
-    baseHead: baseHeadOption,
-    container: containerOptional,
-  },
-  ({ sandboxDir, baseHead, container }) =>
-    Effect.gen(function* () {
-      const hostRepoDir = process.cwd();
-      const repoName = hostRepoDir.split("/").pop()!;
-
-      const useDocker = container._tag === "Some";
-      const sandboxRepoDir = useDocker
-        ? `${SANDBOX_REPOS_DIR}/${repoName}`
-        : `${sandboxDir}/repo`;
-
-      yield* Console.log(
-        `Syncing changes from ${sandboxRepoDir} back to ${hostRepoDir}...`,
-      );
-
-      const layer = useDocker
-        ? DockerSandbox.layer(container.value)
-        : FilesystemSandbox.layer(sandboxDir);
-
-      yield* syncOut(hostRepoDir, sandboxRepoDir, baseHead).pipe(
-        Effect.provide(layer),
-      );
-
-      yield* Console.log("Sync-out complete.");
-    }),
-);
-
 // --- Run command ---
 
 const iterationsOption = Options.integer("iterations").pipe(
@@ -367,6 +283,8 @@ const runCommand = Command.make(
 );
 
 // --- Interactive command ---
+
+const SANDBOX_REPOS_DIR = "/home/agent/repos";
 
 const interactiveSession = (options: {
   hostRepoDir: string;
@@ -507,8 +425,6 @@ const rootCommand = Command.make("sandcastle", {}, () =>
 
 export const sandcastle = rootCommand.pipe(
   Command.withSubcommands([
-    syncInCommand,
-    syncOutCommand,
     initCommand,
     setupSandboxCommand,
     cleanupSandboxCommand,
