@@ -1533,4 +1533,88 @@ describe("patch artifacts", () => {
       );
     }
   });
+
+  it("--branch sync-out failure includes worktree setup in recovery commands", async () => {
+    const { hostDir, sandboxRepoDir, layer } = await setup();
+    await initRepo(hostDir);
+    await commitFile(hostDir, "shared.txt", "original", "initial commit");
+
+    // syncIn with --branch
+    await Effect.runPromise(
+      syncIn(hostDir, sandboxRepoDir, { branch: "feature/recover" }).pipe(
+        Effect.provide(layer),
+      ),
+    );
+    const baseHead = await getHead(sandboxRepoDir);
+    await initSandboxGit(sandboxRepoDir);
+
+    // Sandbox makes a conflicting commit on the branch
+    await writeFile(join(sandboxRepoDir, "shared.txt"), "sandbox version");
+    await execAsync("git add shared.txt", { cwd: sandboxRepoDir });
+    await execAsync('git commit -m "sandbox edit"', { cwd: sandboxRepoDir });
+
+    // Host modifies the same file on main, creating a conflict for the worktree apply
+    await writeFile(join(hostDir, "shared.txt"), "host version");
+    await execAsync("git add shared.txt", { cwd: hostDir });
+    await execAsync('git commit -m "host edit"', { cwd: hostDir });
+
+    try {
+      await Effect.runPromise(
+        syncOut(hostDir, sandboxRepoDir, baseHead, {
+          branch: "feature/recover",
+        }).pipe(Effect.provide(layer)),
+      );
+      throw new Error("Expected syncOut to fail");
+    } catch (error: unknown) {
+      const msg = (error as Error).message;
+      // Should include worktree setup commands
+      expect(msg).toContain(
+        "git worktree add .sandcastle/worktree feature/recover",
+      );
+      expect(msg).toContain("cd .sandcastle/worktree");
+      expect(msg).toContain("git am --continue");
+      // Should reference persistent patch directory
+      expect(msg).toContain(".sandcastle/patches/");
+    }
+  });
+
+  it("--branch sync-out failure persists patches in timestamped directory", async () => {
+    const { hostDir, sandboxRepoDir, layer } = await setup();
+    await initRepo(hostDir);
+    await commitFile(hostDir, "shared.txt", "original", "initial commit");
+
+    await Effect.runPromise(
+      syncIn(hostDir, sandboxRepoDir, { branch: "feature/persist" }).pipe(
+        Effect.provide(layer),
+      ),
+    );
+    const baseHead = await getHead(sandboxRepoDir);
+    await initSandboxGit(sandboxRepoDir);
+
+    // Sandbox makes a conflicting commit
+    await writeFile(join(sandboxRepoDir, "shared.txt"), "sandbox version");
+    await execAsync("git add shared.txt", { cwd: sandboxRepoDir });
+    await execAsync('git commit -m "sandbox edit"', { cwd: sandboxRepoDir });
+
+    // Host creates conflict
+    await writeFile(join(hostDir, "shared.txt"), "host version");
+    await execAsync("git add shared.txt", { cwd: hostDir });
+    await execAsync('git commit -m "host edit"', { cwd: hostDir });
+
+    try {
+      await Effect.runPromise(
+        syncOut(hostDir, sandboxRepoDir, baseHead, {
+          branch: "feature/persist",
+        }).pipe(Effect.provide(layer)),
+      );
+      throw new Error("Expected syncOut to fail");
+    } catch {
+      // Patches should persist in .sandcastle/patches/
+      const patchesDir = join(hostDir, ".sandcastle", "patches");
+      const dirs = await readdir(patchesDir);
+      expect(dirs.length).toBe(1);
+      const patchFiles = await readdir(join(patchesDir, dirs[0]!));
+      expect(patchFiles.some((f) => f.endsWith(".patch"))).toBe(true);
+    }
+  });
 });

@@ -534,19 +534,30 @@ const syncOutViaWorktree = (
     const commitCount = parseInt(countResult.stdout.trim(), 10);
     if (commitCount === 0) return;
 
-    // Generate and copy patches
+    // Phase 1: Eagerly save patches to persistent timestamped directory
+    const patchDir = yield* Effect.promise(() => createPatchDir(hostRepoDir));
     const hostPatchDir = yield* generateAndCopyPatches(
       sandbox,
       sandboxRepoDir,
       baseHead,
     );
+    // Move patch files into the persistent directory
+    const patchFiles = (yield* Effect.promise(() =>
+      readdir(hostPatchDir),
+    )).filter((f) => f.endsWith(".patch"));
+    for (const file of patchFiles) {
+      yield* Effect.promise(() =>
+        copyFile(join(hostPatchDir, file), join(patchDir, file)),
+      );
+    }
+    yield* Effect.promise(() => rm(hostPatchDir, { recursive: true }));
 
-    // Create worktree, apply patches, clean up
+    // Phase 2: Create worktree, apply patches
     const worktreeDir = yield* Effect.promise(() =>
       mkdtemp(join(tmpdir(), "sandcastle-worktree-")),
     );
 
-    yield* Effect.ensuring(
+    const applyEffect = Effect.ensuring(
       // Try: create worktree and apply patches
       Effect.gen(function* () {
         // Check if target branch already exists on host
@@ -561,13 +572,11 @@ const syncOutViaWorktree = (
         );
 
         if (branchExists) {
-          // Check out existing branch into worktree
           yield* execHost(
             `git worktree add "${worktreeDir}/wt" "${targetBranch}"`,
             hostRepoDir,
           );
         } else {
-          // Create worktree with a new branch from the current HEAD
           yield* execHost(
             `git worktree add "${worktreeDir}/wt" -b "${targetBranch}" HEAD`,
             hostRepoDir,
@@ -578,18 +587,18 @@ const syncOutViaWorktree = (
         yield* Effect.ignore(execHost("git am --abort", `${worktreeDir}/wt`));
 
         // Apply patches in the worktree
-        const sortedFiles = (yield* Effect.promise(() => readdir(hostPatchDir)))
+        const sortedFiles = (yield* Effect.promise(() => readdir(patchDir)))
           .filter((f) => f.endsWith(".patch"))
           .sort();
 
         for (const file of sortedFiles) {
           yield* execHost(
-            `git am --3way "${join(hostPatchDir, file)}"`,
+            `git am --3way "${join(patchDir, file)}"`,
             `${worktreeDir}/wt`,
           );
         }
       }),
-      // Finally: always clean up worktree
+      // Finally: always clean up worktree (but not patches)
       Effect.gen(function* () {
         yield* Effect.ignore(
           execHost(
@@ -600,11 +609,27 @@ const syncOutViaWorktree = (
         yield* Effect.promise(() =>
           rm(worktreeDir, { recursive: true, force: true }),
         );
-        yield* Effect.promise(() =>
-          rm(hostPatchDir, { recursive: true, force: true }),
-        );
       }),
     );
+
+    // On success, clean up patch dir. On failure, generate recovery message.
+    yield* Effect.matchEffect(applyEffect, {
+      onSuccess: () =>
+        Effect.promise(() => rm(patchDir, { recursive: true, force: true })),
+      onFailure: (error) => {
+        const relativePatchDir = relative(hostRepoDir, patchDir);
+        const recovery = buildRecoveryMessage({
+          patchDir: relativePatchDir,
+          failedStep: "commits",
+          hasCommits: true,
+          hasDiff: false,
+          hasUntracked: false,
+          branch: targetBranch,
+        });
+        const errorMsg = error.message + `\n\n${recovery}`;
+        return Effect.fail(new SandboxError(error.operation, errorMsg));
+      },
+    });
   });
 
 /** Generate format-patch files in sandbox and copy them to host temp dir */

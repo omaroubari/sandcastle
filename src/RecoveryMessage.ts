@@ -6,6 +6,7 @@ export interface RecoveryInput {
   readonly hasCommits: boolean;
   readonly hasDiff: boolean;
   readonly hasUntracked: boolean;
+  readonly branch?: string;
 }
 
 /**
@@ -13,7 +14,12 @@ export interface RecoveryInput {
  * Pure function: takes failure state, returns formatted terminal output.
  */
 export const buildRecoveryMessage = (input: RecoveryInput): string => {
-  const { patchDir, failedStep, hasCommits, hasDiff, hasUntracked } = input;
+  const { patchDir, failedStep, hasCommits, hasDiff, hasUntracked, branch } =
+    input;
+
+  // When --branch is set, commands run inside .sandcastle/worktree,
+  // so patch paths need ../../ prefix to reach repo root
+  const cmdPatchDir = branch ? `../../${patchDir}` : patchDir;
 
   // Determine the step number for the failed step
   const steps: { key: FailedStep; label: string; has: boolean }[] = [];
@@ -34,6 +40,18 @@ export const buildRecoveryMessage = (input: RecoveryInput): string => {
   );
   lines.push("");
 
+  // Add worktree setup preamble for --branch
+  if (branch) {
+    lines.push("Set up worktree, then resolve:");
+    lines.push(
+      formatCommandBlock([
+        `git worktree add .sandcastle/worktree ${branch}`,
+        `cd .sandcastle/worktree`,
+      ]),
+    );
+    lines.push("");
+  }
+
   if (failedStep === "commits") {
     // git am failure — lean on git's built-in workflow
     lines.push("Resolve conflicts, then continue with:");
@@ -41,7 +59,7 @@ export const buildRecoveryMessage = (input: RecoveryInput): string => {
 
     // Remaining steps after git am resolves
     const remaining = buildRemainingCommands(
-      patchDir,
+      cmdPatchDir,
       steps.slice(failedIndex + 1),
     );
     if (remaining.length > 0) {
@@ -52,7 +70,7 @@ export const buildRecoveryMessage = (input: RecoveryInput): string => {
   } else {
     // diff or untracked failure — print remaining commands from failed step onward
     const remaining = buildRemainingCommands(
-      patchDir,
+      cmdPatchDir,
       steps.slice(failedIndex),
     );
     if (remaining.length > 0) {

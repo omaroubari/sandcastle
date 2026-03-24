@@ -152,4 +152,73 @@ describe("buildRecoveryMessage", () => {
     expect(msg).toContain(`git apply ${patchDir}/changes.patch`);
     expect(msg).not.toContain("&& \\");
   });
+
+  describe("--branch recovery commands", () => {
+    const branch = "feature/test";
+
+    it("git am failure includes worktree setup", () => {
+      const msg = buildRecoveryMessage({
+        patchDir,
+        failedStep: "commits",
+        hasCommits: true,
+        hasDiff: false,
+        hasUntracked: false,
+        branch,
+      });
+
+      expect(msg).toContain(
+        "git worktree add .sandcastle/worktree feature/test",
+      );
+      expect(msg).toContain("cd .sandcastle/worktree");
+      expect(msg).toContain("git am --continue");
+    });
+
+    it("git am failure with remaining steps uses worktree-relative paths", () => {
+      const msg = buildRecoveryMessage({
+        patchDir,
+        failedStep: "commits",
+        hasCommits: true,
+        hasDiff: true,
+        hasUntracked: true,
+        branch,
+      });
+
+      expect(msg).toContain(
+        "git worktree add .sandcastle/worktree feature/test",
+      );
+      // Remaining steps should reference paths relative to worktree
+      expect(msg).toContain(`git apply ../../${patchDir}/changes.patch`);
+      expect(msg).toContain(`cp -r ../../${patchDir}/untracked/* .`);
+    });
+
+    it("diff failure includes worktree setup and correct paths", () => {
+      const msg = buildRecoveryMessage({
+        patchDir,
+        failedStep: "diff",
+        hasCommits: true,
+        hasDiff: true,
+        hasUntracked: true,
+        branch,
+      });
+
+      // Commits already applied, but still need worktree for remaining steps
+      expect(msg).toContain(
+        "git worktree add .sandcastle/worktree feature/test",
+      );
+      expect(msg).toContain(`git apply ../../${patchDir}/changes.patch`);
+      expect(msg).toContain(`cp -r ../../${patchDir}/untracked/* .`);
+    });
+
+    it("omits worktree setup when branch is undefined (direct-apply)", () => {
+      const msg = buildRecoveryMessage({
+        patchDir,
+        failedStep: "commits",
+        hasCommits: true,
+        hasDiff: false,
+        hasUntracked: false,
+      });
+
+      expect(msg).not.toContain("worktree");
+    });
+  });
 });
