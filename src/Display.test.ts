@@ -3,12 +3,13 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { mkdtempSync } from "node:fs";
 import { Effect, Ref } from "effect";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   Display,
   type DisplayEntry,
   FileDisplay,
   SilentDisplay,
+  terminalStyle,
 } from "./Display.js";
 
 describe("SilentDisplay", () => {
@@ -297,5 +298,63 @@ describe("FileDisplay", () => {
     const { logPath } = setup();
     const log = readLog(logPath);
     expect(log).toBe("");
+  });
+
+  it("writes status messages without ANSI escape codes", async () => {
+    const { logPath, layer } = setup();
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const d = yield* Display;
+        yield* d.status("Agent started", "success");
+        yield* d.status("Iteration 1/3", "info");
+      }).pipe(Effect.provide(layer)),
+    );
+
+    const log = readLog(logPath);
+    expect(log).not.toContain("\u001b[");
+  });
+
+  it("writes summary without ANSI escape codes", async () => {
+    const { logPath, layer } = setup();
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const d = yield* Display;
+        yield* d.summary("Token Usage", {
+          Tokens: "1,234 in / 567 out",
+          Turns: "3",
+        });
+      }).pipe(Effect.provide(layer)),
+    );
+
+    const log = readLog(logPath);
+    expect(log).not.toContain("\u001b[");
+  });
+});
+
+describe("terminalStyle", () => {
+  beforeEach(() => {
+    process.env.FORCE_COLOR = "1";
+  });
+  afterEach(() => {
+    delete process.env.FORCE_COLOR;
+  });
+
+  it("wraps status messages with bold ANSI codes", () => {
+    const styled = terminalStyle.status("Agent started");
+    expect(styled).toBe("\u001b[1mAgent started\u001b[22m");
+  });
+
+  it("wraps summary title with bold ANSI codes", () => {
+    const styled = terminalStyle.summaryTitle("Token Usage");
+    expect(styled).toBe("\u001b[1mToken Usage\u001b[22m");
+  });
+
+  it("formats summary row with bold key and dim value", () => {
+    const styled = terminalStyle.summaryRow("Tokens", "1,234 in / 567 out");
+    expect(styled).toContain("\u001b[1mTokens\u001b[22m");
+    expect(styled).toContain("\u001b[2m1,234 in / 567 out\u001b[22m");
+    expect(styled).toContain(": ");
   });
 });

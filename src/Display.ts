@@ -166,13 +166,22 @@ const severityToClack: Record<Severity, (message: string) => void> = {
   error: clack.log.error,
 };
 
+export const terminalStyle = {
+  status: (message: string): string => styleText("bold", message),
+  summaryTitle: (title: string): string => styleText("bold", title),
+  summaryRow: (key: string, value: string): string =>
+    `${styleText("bold", key)}: ${styleText("dim", value)}`,
+};
+
 export const ClackDisplay = {
   layer: Layer.succeed(Display, {
     intro: (title) =>
       Effect.sync(() => clack.intro(styleText("inverse", ` ${title} `))),
 
     status: (message, severity) =>
-      Effect.sync(() => severityToClack[severity](message)),
+      Effect.sync(() =>
+        severityToClack[severity](terminalStyle.status(message)),
+      ),
 
     spinner: (message, effect) =>
       Effect.acquireUseRelease(
@@ -195,9 +204,9 @@ export const ClackDisplay = {
     summary: (title, rows) =>
       Effect.sync(() => {
         const lines = Object.entries(rows)
-          .map(([key, value]) => `${key}: ${value}`)
+          .map(([key, value]) => terminalStyle.summaryRow(key, value))
           .join("\n");
-        clack.note(lines, title);
+        clack.note(lines, terminalStyle.summaryTitle(title));
       }),
 
     taskLog: (title, effect) =>
