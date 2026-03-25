@@ -151,7 +151,10 @@ export interface OrchestrateOptions {
 
 export interface OrchestrateResult {
   readonly iterationsRun: number;
-  readonly complete: boolean;
+  readonly wasCompletionSignalDetected: boolean;
+  readonly stdout: string;
+  readonly commits: { sha: string }[];
+  readonly branch: string;
 }
 
 export const orchestrate = (
@@ -164,10 +167,14 @@ export const orchestrate = (
       options;
     const resolvedModel = options.model ?? DEFAULT_MODEL;
 
+    const allCommits: { sha: string }[] = [];
+    let allStdout = "";
+    let resolvedBranch = "";
+
     for (let i = 1; i <= iterations; i++) {
       yield* display.status(`Iteration ${i}/${iterations}`, "info");
 
-      const iterationResult = yield* factory.withSandbox(
+      const lifecycleResult = yield* factory.withSandbox(
         withSandboxLifecycle(
           { hostRepoDir, sandboxRepoDir, hooks: config?.hooks, branch },
           (ctx) =>
@@ -204,22 +211,44 @@ export const orchestrate = (
 
               // Check completion signal
               if (agentOutput.includes(COMPLETION_SIGNAL)) {
-                return { complete: true } as const;
+                return {
+                  wasCompletionSignalDetected: true,
+                  stdout: agentOutput,
+                } as const;
               }
-              return { complete: false } as const;
+              return {
+                wasCompletionSignalDetected: false,
+                stdout: agentOutput,
+              } as const;
             }),
         ),
       );
 
-      if (iterationResult.complete) {
+      allCommits.push(...lifecycleResult.commits);
+      allStdout += lifecycleResult.result.stdout;
+      resolvedBranch = lifecycleResult.branch;
+
+      if (lifecycleResult.result.wasCompletionSignalDetected) {
         yield* display.status(
           `Agent signaled completion after ${i} iteration(s).`,
           "success",
         );
-        return { iterationsRun: i, complete: true };
+        return {
+          iterationsRun: i,
+          wasCompletionSignalDetected: true,
+          stdout: allStdout,
+          commits: allCommits,
+          branch: resolvedBranch,
+        };
       }
     }
 
     yield* display.status(`Completed ${iterations} iteration(s).`, "info");
-    return { iterationsRun: iterations, complete: false };
+    return {
+      iterationsRun: iterations,
+      wasCompletionSignalDetected: false,
+      stdout: allStdout,
+      commits: allCommits,
+      branch: resolvedBranch,
+    };
   });

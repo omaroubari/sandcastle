@@ -31,7 +31,10 @@ export interface RunOptions {
 
 export interface RunResult {
   readonly iterationsRun: number;
-  readonly complete: boolean;
+  readonly wasCompletionSignalDetected: boolean;
+  readonly stdout: string;
+  readonly commits: { sha: string }[];
+  readonly branch: string;
 }
 
 const SANDBOX_REPOS_DIR = "/home/agent/repos";
@@ -111,5 +114,5 @@ export const run = async (options: RunOptions): Promise<RunResult> => {
     }).pipe(Effect.provide(runLayer)),
   );
 
-  return { iterationsRun: result.iterationsRun, complete: result.complete };
+  return result;
 };

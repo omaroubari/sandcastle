@@ -192,7 +192,7 @@ describe("Orchestrator", () => {
     );
 
     expect(result.iterationsRun).toBe(1);
-    expect(result.complete).toBe(false);
+    expect(result.wasCompletionSignalDetected).toBe(false);
 
     // Verify the agent's commit was synced back to host
     const content = await readFile(join(hostDir, "agent-output.txt"), "utf-8");
@@ -223,7 +223,7 @@ describe("Orchestrator", () => {
     );
 
     expect(result.iterationsRun).toBe(1);
-    expect(result.complete).toBe(true);
+    expect(result.wasCompletionSignalDetected).toBe(true);
   });
 
   it("runs multiple iterations with re-sync between them", async () => {
@@ -267,7 +267,7 @@ describe("Orchestrator", () => {
     );
 
     expect(result.iterationsRun).toBe(3);
-    expect(result.complete).toBe(true);
+    expect(result.wasCompletionSignalDetected).toBe(true);
 
     // Verify all 3 iteration files arrived on host
     for (let i = 1; i <= 3; i++) {
@@ -300,7 +300,7 @@ describe("Orchestrator", () => {
     );
 
     expect(result.iterationsRun).toBe(2);
-    expect(result.complete).toBe(false);
+    expect(result.wasCompletionSignalDetected).toBe(false);
 
     // Host should still be at the original commit
     const hostHead = await getHead(hostDir);
@@ -342,9 +342,152 @@ describe("Orchestrator", () => {
     );
 
     expect(result.iterationsRun).toBe(2);
-    expect(result.complete).toBe(true);
+    expect(result.wasCompletionSignalDetected).toBe(true);
     // Untracked file from iteration 1 must not exist in iteration 2's sandbox
     expect(markerExistedInIter2).toBe(false);
+  });
+});
+
+describe("OrchestrateResult", () => {
+  it("captures agent stdout in the result", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "orch-result-"));
+
+    await initRepo(hostDir);
+    await commitFile(hostDir, "hello.txt", "hello", "initial commit");
+
+    const { factoryLayer, sandboxRepoDir } = makeTestSandboxFactory((dir) =>
+      makeMockAgentLayer(dir, async () => {
+        return 'Here is my structured output: {"plan": [1, 2, 3]}';
+      }),
+    );
+
+    const result = await Effect.runPromise(
+      orchestrate({
+        hostRepoDir: hostDir,
+        sandboxRepoDir,
+        iterations: 1,
+        prompt: "do some work",
+      }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
+    );
+
+    expect(result.stdout).toContain(
+      'Here is my structured output: {"plan": [1, 2, 3]}',
+    );
+  });
+
+  it("accumulates commits across multiple iterations", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "orch-result-"));
+
+    await initRepo(hostDir);
+    await commitFile(hostDir, "hello.txt", "hello", "initial commit");
+
+    let iterationCount = 0;
+
+    const { factoryLayer, sandboxRepoDir } = makeTestSandboxFactory((dir) =>
+      makeMockAgentLayer(dir, async (repoDir) => {
+        iterationCount++;
+        await writeFile(
+          join(repoDir, `file-${iterationCount}.txt`),
+          `content ${iterationCount}`,
+        );
+        await execAsync("git add -A", { cwd: repoDir });
+        await execAsync('git config user.email "agent@test.com"', {
+          cwd: repoDir,
+        });
+        await execAsync('git config user.name "Agent"', { cwd: repoDir });
+        await execAsync(`git commit -m "commit ${iterationCount}"`, {
+          cwd: repoDir,
+        });
+
+        if (iterationCount === 3) {
+          return "All done. <promise>COMPLETE</promise>";
+        }
+        return `Iteration ${iterationCount} done.`;
+      }),
+    );
+
+    const result = await Effect.runPromise(
+      orchestrate({
+        hostRepoDir: hostDir,
+        sandboxRepoDir,
+        iterations: 5,
+        prompt: "do some work",
+      }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
+    );
+
+    expect(result.commits).toHaveLength(3);
+    // Each commit sha should be valid
+    for (const commit of result.commits) {
+      expect(commit.sha).toMatch(/^[0-9a-f]{40}$/);
+    }
+    // All shas should be unique
+    const uniqueShas = new Set(result.commits.map((c) => c.sha));
+    expect(uniqueShas.size).toBe(3);
+  });
+
+  it("returns empty commits and branch when agent makes no commits", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "orch-result-"));
+
+    await initRepo(hostDir);
+    await commitFile(hostDir, "hello.txt", "hello", "initial commit");
+
+    const { factoryLayer, sandboxRepoDir } = makeTestSandboxFactory((dir) =>
+      makeMockAgentLayer(dir, async () => {
+        return "Nothing to do.";
+      }),
+    );
+
+    const result = await Effect.runPromise(
+      orchestrate({
+        hostRepoDir: hostDir,
+        sandboxRepoDir,
+        iterations: 1,
+        prompt: "do some work",
+      }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
+    );
+
+    expect(result.commits).toEqual([]);
+    expect(result.branch).toBe("main");
+  });
+
+  it("returns commit shas and branch after a single iteration", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "orch-result-"));
+
+    await initRepo(hostDir);
+    await commitFile(hostDir, "hello.txt", "hello", "initial commit");
+
+    const { factoryLayer, sandboxRepoDir } = makeTestSandboxFactory((dir) =>
+      makeMockAgentLayer(dir, async (repoDir) => {
+        await writeFile(join(repoDir, "new-file.txt"), "new content");
+        await execAsync("git add -A", { cwd: repoDir });
+        await execAsync('git config user.email "agent@test.com"', {
+          cwd: repoDir,
+        });
+        await execAsync('git config user.name "Agent"', { cwd: repoDir });
+        await execAsync('git commit -m "agent commit"', { cwd: repoDir });
+        return "Done.";
+      }),
+    );
+
+    const result = await Effect.runPromise(
+      orchestrate({
+        hostRepoDir: hostDir,
+        sandboxRepoDir,
+        iterations: 1,
+        prompt: "do some work",
+      }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
+    );
+
+    // Branch should match the host's current branch
+    expect(result.branch).toBe("main");
+
+    // Should have exactly one commit
+    expect(result.commits).toHaveLength(1);
+    expect(result.commits[0]!.sha).toMatch(/^[0-9a-f]{40}$/);
+
+    // The sha should match what's on the host
+    const hostHead = await getHead(hostDir);
+    expect(result.commits[0]!.sha).toBe(hostHead);
   });
 });
 
@@ -581,7 +724,7 @@ describe("Orchestrator error handling", () => {
 
     // Should detect COMPLETE from the stdout fallback
     expect(result.iterationsRun).toBe(1);
-    expect(result.complete).toBe(true);
+    expect(result.wasCompletionSignalDetected).toBe(true);
   });
 
   it("preserves iteration 1 work when agent fails on iteration 2", async () => {
@@ -830,7 +973,7 @@ describe("Orchestrator streaming", () => {
     );
 
     expect(result.iterationsRun).toBe(1);
-    expect(result.complete).toBe(true);
+    expect(result.wasCompletionSignalDetected).toBe(true);
   });
 
   it("uses DEFAULT_MODEL when no model is specified", async () => {

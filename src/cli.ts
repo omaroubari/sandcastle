@@ -261,7 +261,7 @@ const runCommand = Command.make(
           }),
       });
 
-      if (result.complete) {
+      if (result.wasCompletionSignalDetected) {
         yield* d.status(
           `Run complete: agent finished after ${result.iterationsRun} iteration(s).`,
           "success",

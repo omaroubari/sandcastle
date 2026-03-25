@@ -157,7 +157,7 @@ describe("withSandboxLifecycle", () => {
       ).pipe(Effect.provide(Layer.merge(layer, testDisplayLayer))),
     );
 
-    expect(result).toEqual({ complete: true });
+    expect(result.result).toEqual({ complete: true });
   });
 
   it("no hooks is fine", async () => {
@@ -171,7 +171,7 @@ describe("withSandboxLifecycle", () => {
       ).pipe(Effect.provide(Layer.merge(layer, testDisplayLayer))),
     );
 
-    expect(result).toBe("ok");
+    expect(result.result).toBe("ok");
   });
 
   it("hook failure aborts before callback", async () => {
