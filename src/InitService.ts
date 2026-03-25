@@ -38,6 +38,24 @@ const TEMPLATES: TemplateMetadata[] = [
 
 export const listTemplates = (): TemplateMetadata[] => TEMPLATES;
 
+export function getNextStepsLines(template: string): string[] {
+  if (template === "blank") {
+    return [
+      "Next steps:",
+      "1. Fill in .sandcastle/.env with your agent credentials",
+      "2. Run `npx sandcastle run` to start the agent",
+    ];
+  } else {
+    return [
+      "Next steps:",
+      "1. Fill in .sandcastle/.env with your agent credentials",
+      `2. Add "sandcastle": "npx tsx .sandcastle/main.ts" to your package.json scripts`,
+      "3. Customize the `npm install` command in the onSandboxReady hook if your project uses a different package manager",
+      "4. Run `npm run sandcastle` to start the agent",
+    ];
+  }
+}
+
 function buildEnvExample(envManifest: Record<string, string>): string {
   return (
     Object.entries(envManifest)

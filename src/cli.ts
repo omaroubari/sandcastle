@@ -5,11 +5,12 @@ import { Effect, HashMap, Layer } from "effect";
 import * as clack from "@clack/prompts";
 import { spawn } from "node:child_process";
 import { join, resolve } from "node:path";
+import { styleText } from "node:util";
 import { readConfig } from "./Config.js";
 import { Display } from "./Display.js";
 import { DEFAULT_MODEL } from "./Orchestrator.js";
 import { buildImage, removeImage } from "./DockerLifecycle.js";
-import { scaffold, listTemplates } from "./InitService.js";
+import { scaffold, listTemplates, getNextStepsLines } from "./InitService.js";
 import { defaultImageName, run } from "./run.js";
 import { getAgentProvider } from "./AgentProvider.js";
 import { AgentError, ConfigDirError, InitError } from "./errors.js";
@@ -166,20 +167,9 @@ const initCommand = Command.make(
       }
 
       // Show template-specific next steps
-      if (selectedTemplate === "blank") {
-        yield* d.status(
-          "Next steps: fill in .sandcastle/.env, then run `npx sandcastle run` to start the agent.",
-          "info",
-        );
-      } else {
-        yield* d.status(
-          'Next steps: fill in .sandcastle/.env, add `"sandcastle": "npx tsx .sandcastle/main.ts"` to your package.json scripts, then run `npm run sandcastle`.',
-          "info",
-        );
-        yield* d.status(
-          "The default onSandboxReady hook runs `npm install` in the sandbox before each iteration.",
-          "info",
-        );
+      const nextSteps = getNextStepsLines(selectedTemplate);
+      for (const [i, line] of nextSteps.entries()) {
+        yield* d.text(i === 0 ? line : styleText("dim", line));
       }
     }),
 );
