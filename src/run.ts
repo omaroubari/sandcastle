@@ -1,15 +1,10 @@
 import { NodeContext, NodeFileSystem } from "@effect/platform-node";
 import path, { join } from "node:path";
+import { styleText } from "node:util";
 import { Effect, Layer } from "effect";
-import * as clack from "@clack/prompts";
 import { getAgentProvider } from "./AgentProvider.js";
 import { readConfig } from "./Config.js";
-import {
-  ClackDisplay,
-  Display,
-  FileDisplay,
-  terminalStyle,
-} from "./Display.js";
+import { ClackDisplay, Display, FileDisplay } from "./Display.js";
 import { orchestrate } from "./Orchestrator.js";
 import { resolvePrompt } from "./PromptResolver.js";
 import {
@@ -28,14 +23,25 @@ import {
 export const sanitizeBranchForFilename = (branch: string): string =>
   branch.replace(/[/\\:*?"<>|]/g, "-");
 
+export interface FileDisplayStartupOptions {
+  readonly logPath: string;
+  readonly agentName?: string;
+  readonly branch?: string;
+}
+
 /**
- * Print the styled "Agent started" startup message to the terminal when using
- * file-based logging. Uses clack styling to match other status messages.
+ * Print the startup message to the terminal when using file-based logging.
+ * Uses styleText for lightweight bold/dim styling — does not use Clack.
  */
-export const printFileDisplayStartup = (logPath: string): void => {
-  clack.log.success(terminalStyle.status("Agent started"));
-  clack.log.message(`Run this to see logs:`);
-  clack.log.message(`  tail -f ${path.relative(process.cwd(), logPath)}`);
+export const printFileDisplayStartup = (
+  options: FileDisplayStartupOptions,
+): void => {
+  const name = options.agentName ?? "agent";
+  const label = styleText("bold", `[${name}]`);
+  const branchPart = options.branch ? ` on branch ${options.branch}` : "";
+  const relativeLogPath = path.relative(process.cwd(), options.logPath);
+  console.log(`${label} Started${branchPart}`);
+  console.log(styleText("dim", `  tail -f ${relativeLogPath}`));
 };
 
 /**
@@ -182,7 +188,11 @@ export const run = async (options: RunOptions): Promise<RunResult> => {
   const displayLayer =
     resolvedLogging.type === "file"
       ? (() => {
-          printFileDisplayStartup(resolvedLogging.path);
+          printFileDisplayStartup({
+            logPath: resolvedLogging.path,
+            agentName: options.name,
+            branch: resolvedBranch,
+          });
           return Layer.provide(
             FileDisplay.layer(resolvedLogging.path),
             NodeFileSystem.layer,

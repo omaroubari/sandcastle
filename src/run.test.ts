@@ -1,5 +1,4 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import * as clack from "@clack/prompts";
 import {
   buildLogFilename,
   defaultImageName,
@@ -9,41 +8,79 @@ import {
   type RunResult,
 } from "./run.js";
 
-vi.mock("@clack/prompts", () => ({
-  log: {
-    success: vi.fn(),
-    message: vi.fn(),
-  },
-}));
-
 describe("printFileDisplayStartup", () => {
+  let consoleSpy: ReturnType<typeof vi.spyOn>;
+
   beforeEach(() => {
     process.env.FORCE_COLOR = "1";
-    vi.clearAllMocks();
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
   });
   afterEach(() => {
+    consoleSpy.mockRestore();
     delete process.env.FORCE_COLOR;
   });
 
-  it("calls clack.log.success with bold-styled 'Agent started'", () => {
-    printFileDisplayStartup("/project/.sandcastle/logs/main.log");
-    expect(clack.log.success).toHaveBeenCalledWith(
-      expect.stringContaining("\u001b[1mAgent started\u001b[22m"),
-    );
+  it("does not use clack (no @clack/prompts calls)", async () => {
+    const clack = await import("@clack/prompts");
+    const clackSpy = vi
+      .spyOn(clack.log, "success")
+      .mockImplementation(() => {});
+    printFileDisplayStartup({
+      logPath: "/project/.sandcastle/logs/main.log",
+    });
+    expect(clackSpy).not.toHaveBeenCalled();
+    clackSpy.mockRestore();
   });
 
-  it("does not use console.log for 'Agent started'", () => {
-    const consoleSpy = vi.spyOn(console, "log");
-    printFileDisplayStartup("/project/.sandcastle/logs/main.log");
-    expect(consoleSpy).not.toHaveBeenCalled();
-    consoleSpy.mockRestore();
+  it("uses console.log for output", () => {
+    printFileDisplayStartup({
+      logPath: "/project/.sandcastle/logs/main.log",
+    });
+    expect(consoleSpy).toHaveBeenCalled();
   });
 
-  it("calls clack.log.message with the tail command", () => {
-    printFileDisplayStartup("/project/.sandcastle/logs/main.log");
-    const allCalls = (clack.log.message as ReturnType<typeof vi.fn>).mock.calls;
-    const allArgs = allCalls.flat().join(" ");
-    expect(allArgs).toContain("tail -f");
+  it("shows '[agent] Started' when no name is provided", () => {
+    printFileDisplayStartup({
+      logPath: "/project/.sandcastle/logs/main.log",
+    });
+    const allOutput = consoleSpy.mock.calls.flat().join(" ");
+    expect(allOutput).toContain("[agent]");
+    expect(allOutput).toContain("Started");
+  });
+
+  it("shows custom agent name when provided", () => {
+    printFileDisplayStartup({
+      logPath: "/project/.sandcastle/logs/main.log",
+      agentName: "my-run",
+    });
+    const allOutput = consoleSpy.mock.calls.flat().join(" ");
+    expect(allOutput).toContain("[my-run]");
+  });
+
+  it("shows branch name when provided", () => {
+    printFileDisplayStartup({
+      logPath: "/project/.sandcastle/logs/main.log",
+      branch: "sandcastle/issue-124-file-logging",
+    });
+    const allOutput = consoleSpy.mock.calls.flat().join(" ");
+    expect(allOutput).toContain("sandcastle/issue-124-file-logging");
+  });
+
+  it("shows tail command with relative log path", () => {
+    printFileDisplayStartup({
+      logPath: "/project/.sandcastle/logs/main.log",
+    });
+    const allOutput = consoleSpy.mock.calls.flat().join(" ");
+    expect(allOutput).toContain("tail -f");
+  });
+
+  it("uses bold styling for the agent name bracket", () => {
+    printFileDisplayStartup({
+      logPath: "/project/.sandcastle/logs/main.log",
+    });
+    const allOutput = consoleSpy.mock.calls.flat().join(" ");
+    // Bold ANSI escape code
+    expect(allOutput).toContain("\u001b[1m");
   });
 });
 
