@@ -1,6 +1,7 @@
 import { NodeContext } from "@effect/platform-node";
 import path, { join } from "node:path";
 import { Effect, Layer } from "effect";
+import { NodeFileSystem } from "@effect/platform-node";
 import { getAgentProvider } from "./AgentProvider.js";
 import { readConfig } from "./Config.js";
 import { NodeFileSystem } from "@effect/platform-node";
@@ -195,14 +196,17 @@ export const run = async (options: RunOptions): Promise<RunResult> => {
   const factoryLayer = USE_WORKTREE_MODE
     ? Layer.provide(
         WorktreeDockerSandboxFactory.layer,
-        Layer.succeed(WorktreeSandboxConfig, {
-          imageName: resolvedImageName,
-          env,
-          hostRepoDir,
-          // Pass explicit branch only — when undefined, WorktreeManager creates a temp branch
-          // and SandboxLifecycle cherry-picks commits onto the host's current branch
-          branch,
-        }),
+        Layer.merge(
+          Layer.succeed(WorktreeSandboxConfig, {
+            imageName: resolvedImageName,
+            env,
+            hostRepoDir,
+            // Pass explicit branch only — when undefined, WorktreeManager creates a temp branch
+            // and SandboxLifecycle cherry-picks commits onto the host's current branch
+            branch,
+          }),
+          NodeFileSystem.layer,
+        ),
       )
     : Layer.provide(
         DockerSandboxFactory.layer,

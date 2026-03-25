@@ -1,4 +1,6 @@
 import { Effect } from "effect";
+import { FileSystem } from "@effect/platform";
+import { NodeFileSystem } from "@effect/platform-node";
 import { exec } from "node:child_process";
 import { mkdir, mkdtemp, readdir, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -46,12 +48,21 @@ const setupRepo = async () => {
 };
 
 /** Run an Effect and return its success value, throwing on failure. */
-const run = <A, E>(effect: Effect.Effect<A, E>) =>
-  Effect.runPromise(effect as Effect.Effect<A, never>);
+const run = <A, E>(effect: Effect.Effect<A, E, FileSystem.FileSystem>) =>
+  Effect.runPromise(
+    effect.pipe(Effect.provide(NodeFileSystem.layer)) as Effect.Effect<
+      A,
+      never
+    >,
+  );
 
 /** Run an Effect and return the error, throwing if it succeeds. */
-const runFail = <A, E>(effect: Effect.Effect<A, E>) =>
-  Effect.runPromise(Effect.flip(effect));
+const runFail = <A, E>(effect: Effect.Effect<A, E, FileSystem.FileSystem>) =>
+  Effect.runPromise(
+    Effect.flip(effect).pipe(
+      Effect.provide(NodeFileSystem.layer),
+    ) as Effect.Effect<E, never>,
+  );
 
 describe("generateTempBranchName", () => {
   it("returns a string in sandcastle/<YYYYMMDD-HHMMSS> format", () => {

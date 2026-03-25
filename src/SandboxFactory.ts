@@ -1,4 +1,5 @@
 import { Context, Effect, Layer } from "effect";
+import { FileSystem } from "@effect/platform";
 import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
@@ -91,6 +92,7 @@ export const WorktreeDockerSandboxFactory = {
     Effect.gen(function* () {
       const { imageName, env, hostRepoDir, branch } =
         yield* WorktreeSandboxConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
       return {
         skipSync: true,
         withSandbox: <A, E, R>(
@@ -122,6 +124,7 @@ export const WorktreeDockerSandboxFactory = {
                     : WorktreeManager.create(hostRepoDir),
                 ),
               )
+              .pipe(Effect.provideService(FileSystem.FileSystem, fileSystem))
               .pipe(
                 Effect.flatMap((worktreeInfo) => {
                   const gitDir = join(hostRepoDir, ".git");

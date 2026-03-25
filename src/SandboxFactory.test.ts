@@ -1,4 +1,5 @@
 import { Effect, Layer } from "effect";
+import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { WorktreeError } from "./errors.js";
 
@@ -53,11 +54,14 @@ describe("WorktreeDockerSandboxFactory", () => {
   const makeLayer = () =>
     Layer.provide(
       WorktreeDockerSandboxFactory.layer,
-      Layer.succeed(WorktreeSandboxConfig, {
-        imageName: "test-image",
-        env: { FOO: "bar" },
-        hostRepoDir,
-      }),
+      Layer.merge(
+        Layer.succeed(WorktreeSandboxConfig, {
+          imageName: "test-image",
+          env: { FOO: "bar" },
+          hostRepoDir,
+        }),
+        NodeFileSystem.layer,
+      ),
     );
 
   beforeEach(() => {
@@ -75,12 +79,15 @@ describe("WorktreeDockerSandboxFactory", () => {
   it("passes branch from config to WorktreeManager.create when branch is specified", async () => {
     const layerWithBranch = Layer.provide(
       WorktreeDockerSandboxFactory.layer,
-      Layer.succeed(WorktreeSandboxConfig, {
-        imageName: "test-image",
-        env: {},
-        hostRepoDir,
-        branch: "feature/my-branch",
-      }),
+      Layer.merge(
+        Layer.succeed(WorktreeSandboxConfig, {
+          imageName: "test-image",
+          env: {},
+          hostRepoDir,
+          branch: "feature/my-branch",
+        }),
+        NodeFileSystem.layer,
+      ),
     );
 
     await Effect.runPromise(
