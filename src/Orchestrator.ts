@@ -179,6 +179,8 @@ export const orchestrate = (
                 ctx.sandboxRepoDir,
               );
 
+              yield* display.status("Agent started", "success");
+
               // Invoke the agent
               const onText = (text: string) =>
                 Effect.runSync(display.text(text));
@@ -189,6 +191,8 @@ export const orchestrate = (
                 resolvedModel,
                 onText,
               );
+
+              yield* display.status("Agent stopped", "info");
 
               // Log usage summary
               if (usage) {

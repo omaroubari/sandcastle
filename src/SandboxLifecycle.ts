@@ -39,7 +39,7 @@ export const withSandboxLifecycle = <A>(
           }
         }
 
-        message("Sync-in");
+        message("Syncing repo into sandbox");
         yield* syncIn(
           hostRepoDir,
           sandboxRepoDir,
@@ -65,7 +65,7 @@ export const withSandboxLifecycle = <A>(
 
     // Sync-out
     yield* display.spinner(
-      "Sync-out",
+      "Syncing commits back to host",
       syncOut(
         hostRepoDir,
         sandboxRepoDir,
