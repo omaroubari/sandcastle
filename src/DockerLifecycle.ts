@@ -52,6 +52,11 @@ export const buildImage = (
     }
   });
 
+export interface StartContainerOptions {
+  readonly volumeMounts?: readonly string[];
+  readonly workdir?: string;
+}
+
 /**
  * Start a new container with environment variables injected.
  */
@@ -59,6 +64,7 @@ export const startContainer = (
   containerName: string,
   imageName: string,
   env: Record<string, string>,
+  options?: StartContainerOptions,
 ): Effect.Effect<void, DockerError> =>
   Effect.gen(function* () {
     // Check if container already exists
@@ -84,12 +90,21 @@ export const startContainer = (
       `${k}=${v}`,
     ]);
 
+    const volumeFlags = (options?.volumeMounts ?? []).flatMap((mount) => [
+      "-v",
+      mount,
+    ]);
+
+    const workdirFlags = options?.workdir ? ["-w", options.workdir] : [];
+
     yield* dockerExec([
       "run",
       "-d",
       "--name",
       containerName,
       ...envFlags,
+      ...volumeFlags,
+      ...workdirFlags,
       imageName,
     ]);
   });
