@@ -4,7 +4,7 @@ Here are the open issues in the repo:
 
 <issues-json>
 
-!`gh issue list --state open --json number,title,body,labels`
+!`gh issue list --state open --json number,title,body,labels,comments`
 
 </issues-json>
 
