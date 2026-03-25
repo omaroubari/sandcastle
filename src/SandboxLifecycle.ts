@@ -170,7 +170,7 @@ export const withSandboxLifecycle = <A>(
       const tempShas = yield* Effect.promise(async () => {
         try {
           const { stdout } = await execAsync(
-            `git rev-list "${baseHead}..HEAD" --reverse`,
+            `git rev-list "${baseHead}..HEAD" --reverse --no-merges`,
             { cwd: hostSideWorktreePath },
           );
           const lines = stdout.trim();

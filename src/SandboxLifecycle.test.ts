@@ -704,6 +704,50 @@ describe("withSandboxLifecycle (worktree mode — skipSync: true)", () => {
     expect(branches.trim()).toBe("");
   });
 
+  it("cherry-pick succeeds when worktree commits include a merge commit", async () => {
+    const { hostDir, worktreeDir, layer } = await setupWorktree();
+
+    const result = await Effect.runPromise(
+      withSandboxLifecycle(
+        {
+          hostRepoDir: hostDir,
+          sandboxRepoDir: worktreeDir,
+          skipSync: true,
+        },
+        (ctx) =>
+          Effect.gen(function* () {
+            yield* ctx.sandbox.exec('git config user.email "test@test.com"', {
+              cwd: ctx.sandboxRepoDir,
+            });
+            yield* ctx.sandbox.exec('git config user.name "Test"', {
+              cwd: ctx.sandboxRepoDir,
+            });
+
+            // Create a feature branch off the worktree, make a commit, then merge it back
+            // This produces a merge commit — exactly what caused the production failure
+            yield* ctx.sandbox.exec(
+              'sh -c "git checkout -b feature/merge-test && echo feat > feat.txt && git add feat.txt && git commit -m \\"feature commit\\""',
+              { cwd: ctx.sandboxRepoDir },
+            );
+            yield* ctx.sandbox.exec(
+              'sh -c "git checkout sandcastle/test && git merge --no-ff feature/merge-test -m \\"Merge feature/merge-test\\""',
+              { cwd: ctx.sandboxRepoDir },
+            );
+          }),
+      ).pipe(Effect.provide(Layer.merge(layer, testDisplayLayer))),
+    );
+
+    // The feature commit should be cherry-picked onto main
+    const { stdout: log } = await execAsync("git log --oneline main", {
+      cwd: hostDir,
+    });
+    expect(log).toContain("feature commit");
+
+    // Should report the cherry-picked (non-merge) commit
+    expect(result.commits.length).toBeGreaterThanOrEqual(1);
+    expect(result.branch).toBe("main");
+  });
+
   it("no cherry-pick when explicit branch is given", async () => {
     const { hostDir, worktreeDir, layer } = await setupWorktree();
 
