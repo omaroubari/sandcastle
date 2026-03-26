@@ -118,32 +118,23 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     continue;
   }
 
-  if (completedBranches.length === 1) {
-    // Single branch — just merge directly, no need for a merge agent
-    const { execSync } = await import("node:child_process");
-    const branch = completedBranches[0];
-    console.log(`\nSingle branch — merging ${branch} directly.`);
-    execSync(`git merge ${branch}`, { stdio: "inherit" });
-    console.log("\nBranch merged.");
-  } else {
-    // Phase 3: Merge — one agent merges all branches together
-    await sandcastle.run({
-      name: "Merger",
-      hooks,
-      maxIterations: 10,
-      model: "claude-sonnet-4-6",
-      promptFile: "./.sandcastle/merge-prompt.md",
-      promptArgs: {
-        BRANCHES: completedBranches.map((b) => `- ${b}`).join("\n"),
-        ISSUES: completedIssues
-          .map((i) => `- #${i.number}: ${i.title}`)
-          .join("\n"),
-      },
-      copyToSandbox: ["node_modules"],
-    });
+  // Phase 3: Merge — one agent merges all branches together
+  await sandcastle.run({
+    name: "Merger",
+    hooks,
+    maxIterations: 10,
+    model: "claude-sonnet-4-6",
+    promptFile: "./.sandcastle/merge-prompt.md",
+    promptArgs: {
+      BRANCHES: completedBranches.map((b) => `- ${b}`).join("\n"),
+      ISSUES: completedIssues
+        .map((i) => `- #${i.number}: ${i.title}`)
+        .join("\n"),
+    },
+    copyToSandbox: ["node_modules"],
+  });
 
-    console.log("\nBranches merged.");
-  }
+  console.log("\nBranches merged.");
 }
 
 console.log("\nAll done.");
