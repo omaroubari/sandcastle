@@ -22,7 +22,7 @@ npm install -g sandcastle
 cd /path/to/your/repo
 sandcastle init
 
-# 2. Set up authentication tokens in .sandcastle/.env (or repo root .env)
+# 2. Set up authentication tokens in .sandcastle/.env
 cp .sandcastle/.env.example .sandcastle/.env
 # Edit .sandcastle/.env and fill in your tokens
 

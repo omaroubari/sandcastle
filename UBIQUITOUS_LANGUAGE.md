@@ -63,7 +63,7 @@
 - Each **iteration** may produce one or more commits; iterations repeat until the **completion signal** fires or the max count is reached
 - **Init** creates the **config directory** on the **host** and builds the Docker image
 - **Build-image** requires the **config directory** to already exist on the **host**
-- The **env resolver** loads env vars from: repo root `.env` > **config directory** `.env` > `process.env` — only keys declared in a `.env` file are resolved from `process.env`
+- The **env resolver** loads env vars from: **config directory** `.env` > `process.env` — only keys declared in the **config directory** `.env` are resolved from `process.env`; repo root `.env` is not part of the resolution chain
 - Each **agent provider** declares an **env manifest** and an **env check**
 - The **agent provider** is selected via the `agent` field in config or `--agent` CLI flag
 - At launch, Sandcastle resolves env vars via the **env resolver**, runs the active **agent provider**'s **env check**, then passes the full env map into the **sandbox**
