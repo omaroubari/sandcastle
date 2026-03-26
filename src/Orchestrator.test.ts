@@ -11,6 +11,7 @@ import { Display, type DisplayEntry, SilentDisplay } from "./Display.js";
 import { makeLocalSandboxLayer } from "./testSandbox.js";
 import {
   DEFAULT_MODEL,
+  formatToolCall,
   orchestrate,
   parseStreamJsonLine,
 } from "./Orchestrator.js";
@@ -787,6 +788,166 @@ describe("parseStreamJsonLine", () => {
         usage: null,
       },
     ]);
+  });
+});
+
+describe("formatToolCall", () => {
+  it("formats Bash tool call using command field", () => {
+    expect(formatToolCall("Bash", { command: "npm test" })).toEqual({
+      name: "Bash",
+      formattedArgs: "npm test",
+    });
+  });
+
+  it("formats WebSearch tool call using query field", () => {
+    expect(
+      formatToolCall("WebSearch", { query: "npm trusted publishing OIDC" }),
+    ).toEqual({
+      name: "WebSearch",
+      formattedArgs: "npm trusted publishing OIDC",
+    });
+  });
+
+  it("formats WebFetch tool call using url field", () => {
+    expect(
+      formatToolCall("WebFetch", { url: "https://example.com/docs" }),
+    ).toEqual({ name: "WebFetch", formattedArgs: "https://example.com/docs" });
+  });
+
+  it("formats Agent tool call using description field", () => {
+    expect(
+      formatToolCall("Agent", { description: "Run tests and report results" }),
+    ).toEqual({ name: "Agent", formattedArgs: "Run tests and report results" });
+  });
+
+  it("returns null for Read (not in allowlist)", () => {
+    expect(formatToolCall("Read", { file_path: "/some/path" })).toBeNull();
+  });
+
+  it("returns null for Glob (not in allowlist)", () => {
+    expect(formatToolCall("Glob", { pattern: "**/*.ts" })).toBeNull();
+  });
+
+  it("returns null for Grep (not in allowlist)", () => {
+    expect(formatToolCall("Grep", { pattern: "foo" })).toBeNull();
+  });
+
+  it("returns null for Edit (not in allowlist)", () => {
+    expect(formatToolCall("Edit", { file_path: "/foo.ts" })).toBeNull();
+  });
+
+  it("returns null for Write (not in allowlist)", () => {
+    expect(formatToolCall("Write", { file_path: "/foo.ts" })).toBeNull();
+  });
+
+  it("returns null for unknown tool", () => {
+    expect(formatToolCall("UnknownTool", { x: 1 })).toBeNull();
+  });
+
+  it("returns null when the arg field is missing", () => {
+    expect(formatToolCall("Bash", {})).toBeNull();
+  });
+});
+
+describe("Orchestrator tool call display integration", () => {
+  it("emits toolCall display entries for allowlisted tools in stream", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "orch-toolcall-"));
+    await initRepo(hostDir);
+    await commitFile(hostDir, "hello.txt", "hello", "initial commit");
+
+    const ref = Ref.unsafeMake<ReadonlyArray<DisplayEntry>>([]);
+    const displayLayer = SilentDisplay.layer(ref);
+
+    const mockLayer = makeTestSandboxFactory(hostDir, (dir) => {
+      const fsLayer = makeLocalSandboxLayer(dir);
+      return Layer.succeed(Sandbox, {
+        exec: (command, options) =>
+          Effect.flatMap(Sandbox, (real) => real.exec(command, options)).pipe(
+            Effect.provide(fsLayer),
+          ),
+        execStreaming: (command, onStdoutLine, options) => {
+          if (command.startsWith("claude ")) {
+            const lines = [
+              JSON.stringify({
+                type: "assistant",
+                message: {
+                  content: [
+                    { type: "text", text: "Running tests..." },
+                    {
+                      type: "tool_use",
+                      name: "Bash",
+                      input: { command: "npm test" },
+                    },
+                    {
+                      type: "tool_use",
+                      name: "WebSearch",
+                      input: { query: "effect-ts docs" },
+                    },
+                    // Read should be filtered out
+                    {
+                      type: "tool_use",
+                      name: "Read",
+                      input: { file_path: "/src/foo.ts" },
+                    },
+                  ],
+                },
+              }),
+              JSON.stringify({
+                type: "result",
+                result: "<promise>COMPLETE</promise>",
+              }),
+            ];
+            for (const line of lines) onStdoutLine(line);
+            return Effect.succeed({
+              stdout: lines.join("\n"),
+              stderr: "",
+              exitCode: 0,
+            });
+          }
+          return Effect.flatMap(Sandbox, (real) =>
+            real.execStreaming(command, onStdoutLine, options),
+          ).pipe(Effect.provide(fsLayer));
+        },
+        copyIn: (hostPath, sandboxPath) =>
+          Effect.flatMap(Sandbox, (real) =>
+            real.copyIn(hostPath, sandboxPath),
+          ).pipe(Effect.provide(fsLayer)),
+        copyOut: (sandboxPath, hostPath) =>
+          Effect.flatMap(Sandbox, (real) =>
+            real.copyOut(sandboxPath, hostPath),
+          ).pipe(Effect.provide(fsLayer)),
+      });
+    });
+
+    await Effect.runPromise(
+      orchestrate({
+        hostRepoDir: hostDir,
+        sandboxRepoDir: mockLayer.sandboxRepoDir,
+        iterations: 1,
+        prompt: "do some work",
+      }).pipe(
+        Effect.provide(Layer.merge(mockLayer.factoryLayer, displayLayer)),
+      ),
+    );
+
+    const entries = await Effect.runPromise(Ref.get(ref));
+    const toolCallEntries = entries.filter((e) => e._tag === "toolCall") as {
+      _tag: "toolCall";
+      name: string;
+      formattedArgs: string;
+    }[];
+
+    expect(toolCallEntries).toHaveLength(2);
+    expect(toolCallEntries[0]).toEqual({
+      _tag: "toolCall",
+      name: "Bash",
+      formattedArgs: "npm test",
+    });
+    expect(toolCallEntries[1]).toEqual({
+      _tag: "toolCall",
+      name: "WebSearch",
+      formattedArgs: "effect-ts docs",
+    });
   });
 });
 

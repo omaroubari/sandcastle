@@ -97,12 +97,41 @@ export const parseStreamJsonLine = (line: string): ParsedStreamEvent[] => {
   return [];
 };
 
+const TOOL_ARG_EXTRACTORS: Record<
+  string,
+  (input: Record<string, unknown>) => string | undefined
+> = {
+  Bash: (input) =>
+    typeof input.command === "string" ? input.command : undefined,
+  WebSearch: (input) =>
+    typeof input.query === "string" ? input.query : undefined,
+  WebFetch: (input) => (typeof input.url === "string" ? input.url : undefined),
+  Agent: (input) =>
+    typeof input.description === "string" ? input.description : undefined,
+};
+
+/**
+ * Format a tool call for display. Returns null if the tool is not in the
+ * allowlist or the required arg field is missing.
+ */
+export const formatToolCall = (
+  name: string,
+  input: Record<string, unknown>,
+): { name: string; formattedArgs: string } | null => {
+  const extractor = TOOL_ARG_EXTRACTORS[name];
+  if (!extractor) return null;
+  const arg = extractor(input);
+  if (arg === undefined) return null;
+  return { name, formattedArgs: arg };
+};
+
 const invokeAgent = (
   sandbox: SandboxService,
   sandboxRepoDir: string,
   prompt: string,
   model: string,
   onText: (text: string) => void,
+  onToolCall: (name: string, formattedArgs: string) => void,
 ): Effect.Effect<{ result: string; usage: TokenUsage | null }, SandboxError> =>
   Effect.gen(function* () {
     let resultText = "";
@@ -117,6 +146,11 @@ const invokeAgent = (
           } else if (parsed.type === "result") {
             resultText = parsed.result;
             tokenUsage = parsed.usage;
+          } else if (parsed.type === "tool_call") {
+            const formatted = formatToolCall(parsed.name, parsed.input);
+            if (formatted) {
+              onToolCall(formatted.name, formatted.formattedArgs);
+            }
           }
         }
       },
@@ -217,12 +251,16 @@ export const orchestrate = (
                 const onText = (text: string) => {
                   Effect.runPromise(display.text(text));
                 };
+                const onToolCall = (name: string, formattedArgs: string) => {
+                  Effect.runPromise(display.toolCall(name, formattedArgs));
+                };
                 const { result: agentOutput, usage } = yield* invokeAgent(
                   ctx.sandbox,
                   ctx.sandboxRepoDir,
                   fullPrompt,
                   resolvedModel,
                   onText,
+                  onToolCall,
                 );
 
                 yield* display.status(label("Agent stopped"), "info");
