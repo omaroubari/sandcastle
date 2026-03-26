@@ -15,9 +15,6 @@ RUN apt-get update && apt-get install -y \\
   jq \\
   && rm -rf /var/lib/apt/lists/*
 
-# Enable corepack (pnpm, yarn)
-RUN corepack enable
-
 # Install GitHub CLI
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \\
   | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \\

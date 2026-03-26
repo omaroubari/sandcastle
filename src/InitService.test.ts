@@ -112,6 +112,18 @@ describe("InitService scaffold", () => {
     expect(dockerfile).toContain(SANDBOX_WORKSPACE_DIR);
   });
 
+  it("claude-code Dockerfile template does not install pnpm or enable corepack", async () => {
+    const dir = await makeDir();
+    await runScaffold(dir, claudeCodeProvider);
+
+    const dockerfile = await readFile(
+      join(dir, ".sandcastle", "Dockerfile"),
+      "utf-8",
+    );
+    expect(dockerfile).not.toContain("corepack");
+    expect(dockerfile).not.toContain("pnpm");
+  });
+
   it("skeleton prompt contains section headers and hints", async () => {
     const dir = await makeDir();
     await runScaffold(dir, fakeProvider);
@@ -201,7 +213,7 @@ describe("InitService scaffold", () => {
     expect(mainTs).toContain("3");
     expect(mainTs).toContain("claude-sonnet-4-6");
     expect(mainTs).toContain("promptFile");
-    expect(mainTs).toContain("pnpm install");
+    expect(mainTs).toContain("npm install");
     expect(mainTs).toContain("onSandboxReady");
   });
 
@@ -334,18 +346,18 @@ describe("InitService scaffold", () => {
       expect(joined).not.toContain("npx sandcastle run");
     });
 
-    it("non-blank template returns steps mentioning .env, package.json scripts, and pnpm run sandcastle", () => {
+    it("non-blank template returns steps mentioning .env, package.json scripts, and npm run sandcastle", () => {
       const lines = getNextStepsLines("simple-loop", fakeProvider);
       const joined = lines.join("\n");
       expect(joined).toContain(".sandcastle/.env");
       expect(joined).toContain("package.json");
-      expect(joined).toContain("pnpm run sandcastle");
+      expect(joined).toContain("npm run sandcastle");
     });
 
     it("non-blank template includes a note about customizing the install command", () => {
       const lines = getNextStepsLines("simple-loop", fakeProvider);
       const joined = lines.join("\n");
-      expect(joined).toContain("pnpm install");
+      expect(joined).toContain("npm install");
       expect(joined).toContain("onSandboxReady");
     });
 
@@ -451,7 +463,7 @@ describe("InitService scaffold", () => {
       ).resolves.toBeUndefined();
     });
 
-    it("main.ts uses pnpm install hook and imports sandcastle", async () => {
+    it("main.ts uses npm install hook and imports sandcastle", async () => {
       const dir = await makeDir();
       await runScaffold(dir, fakeProvider, "parallel-planner");
 
@@ -459,7 +471,7 @@ describe("InitService scaffold", () => {
         join(dir, ".sandcastle", "main.ts"),
         "utf-8",
       );
-      expect(mainTs).toContain("pnpm install");
+      expect(mainTs).toContain("npm install");
       expect(mainTs).toContain("sandcastle");
     });
 

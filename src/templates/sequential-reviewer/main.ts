@@ -27,13 +27,13 @@ import * as sandcastle from "@ai-hero/sandcastle";
 const MAX_ITERATIONS = 10;
 
 // Hooks run inside the sandbox before the agent starts each iteration.
-// pnpm install ensures the sandbox always has fresh dependencies.
+// npm install ensures the sandbox always has fresh dependencies.
 const hooks = {
-  onSandboxReady: [{ command: "pnpm install" }],
+  onSandboxReady: [{ command: "npm install" }],
 };
 
 // Copy node_modules from the host into the worktree before each sandbox
-// starts. Avoids a full pnpm install from scratch; the hook above handles
+// starts. Avoids a full npm install from scratch; the hook above handles
 // platform-specific binaries and any packages added since the last copy.
 const copyToSandbox = ["node_modules"];
 
