@@ -305,16 +305,13 @@ describe("WorktreeDockerSandboxFactory", () => {
     );
 
     expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit)) {
-      const cause = exit.cause;
-      if (cause._tag === "Fail") {
-        const error = cause.error;
-        expect(error).toBeInstanceOf(TimeoutError);
-        expect((error as TimeoutError).preservedWorktreePath).toBe(
-          worktreePath,
-        );
-      }
-    }
+    if (!Exit.isFailure(exit)) throw new Error("unreachable");
+    expect(exit.cause._tag).toBe("Fail");
+    if (exit.cause._tag !== "Fail") throw new Error("unreachable");
+    expect(exit.cause.error).toBeInstanceOf(TimeoutError);
+    expect((exit.cause.error as TimeoutError).preservedWorktreePath).toBe(
+      worktreePath,
+    );
   });
 
   it("attaches preservedWorktreePath to AgentError on failure", async () => {
@@ -328,14 +325,13 @@ describe("WorktreeDockerSandboxFactory", () => {
     );
 
     expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit)) {
-      const cause = exit.cause;
-      if (cause._tag === "Fail") {
-        const error = cause.error;
-        expect(error).toBeInstanceOf(AgentError);
-        expect((error as AgentError).preservedWorktreePath).toBe(worktreePath);
-      }
-    }
+    if (!Exit.isFailure(exit)) throw new Error("unreachable");
+    expect(exit.cause._tag).toBe("Fail");
+    if (exit.cause._tag !== "Fail") throw new Error("unreachable");
+    expect(exit.cause.error).toBeInstanceOf(AgentError);
+    expect((exit.cause.error as AgentError).preservedWorktreePath).toBe(
+      worktreePath,
+    );
   });
 
   it("logs copy-to-sandbox as a spinner when copyToSandbox paths are provided", async () => {
