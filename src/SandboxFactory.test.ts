@@ -1,7 +1,7 @@
-import { Effect, Layer, Ref } from "effect";
+import { Effect, Exit, Layer, Ref } from "effect";
 import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { WorktreeError } from "./errors.js";
+import { AgentError, TimeoutError, WorktreeError } from "./errors.js";
 import { Display, SilentDisplay, type DisplayEntry } from "./Display.js";
 
 // Mock child_process before importing modules under test
@@ -260,7 +260,7 @@ describe("WorktreeDockerSandboxFactory", () => {
     expect(runArgs).not.toContain("HOME=/tmp/evil");
   });
 
-  it("removes worktree even if the effect fails", async () => {
+  it("preserves worktree (does not remove) when the effect fails", async () => {
     await expect(
       Effect.runPromise(
         Effect.gen(function* () {
@@ -270,7 +270,68 @@ describe("WorktreeDockerSandboxFactory", () => {
       ),
     ).rejects.toThrow();
 
-    expect(mockRemove).toHaveBeenCalledWith(worktreePath);
+    expect(mockRemove).not.toHaveBeenCalled();
+  });
+
+  it("removes container but preserves worktree on typed failure", async () => {
+    await expect(
+      Effect.runPromise(
+        Effect.gen(function* () {
+          const factory = yield* SandboxFactory;
+          yield* factory.withSandbox(() =>
+            Effect.fail(new WorktreeError({ message: "boom" })),
+          );
+        }).pipe(Effect.provide(makeLayer())),
+      ),
+    ).rejects.toThrow();
+
+    // Worktree must NOT be removed
+    expect(mockRemove).not.toHaveBeenCalled();
+    // Container must be removed (docker stop + rm)
+    const allArgs = capturedArgs();
+    expect(allArgs.some((args) => args[0] === "rm")).toBe(true);
+  });
+
+  it("attaches preservedWorktreePath to TimeoutError on failure", async () => {
+    const exit = await Effect.runPromiseExit(
+      Effect.gen(function* () {
+        const factory = yield* SandboxFactory;
+        yield* factory.withSandbox(() =>
+          Effect.fail(
+            new TimeoutError({ message: "timed out", timeoutSeconds: 30 }),
+          ),
+        );
+      }).pipe(Effect.provide(makeLayer())),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (!Exit.isFailure(exit)) throw new Error("unreachable");
+    expect(exit.cause._tag).toBe("Fail");
+    if (exit.cause._tag !== "Fail") throw new Error("unreachable");
+    expect(exit.cause.error).toBeInstanceOf(TimeoutError);
+    expect((exit.cause.error as TimeoutError).preservedWorktreePath).toBe(
+      worktreePath,
+    );
+  });
+
+  it("attaches preservedWorktreePath to AgentError on failure", async () => {
+    const exit = await Effect.runPromiseExit(
+      Effect.gen(function* () {
+        const factory = yield* SandboxFactory;
+        yield* factory.withSandbox(() =>
+          Effect.fail(new AgentError({ message: "agent failed" })),
+        );
+      }).pipe(Effect.provide(makeLayer())),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (!Exit.isFailure(exit)) throw new Error("unreachable");
+    expect(exit.cause._tag).toBe("Fail");
+    if (exit.cause._tag !== "Fail") throw new Error("unreachable");
+    expect(exit.cause.error).toBeInstanceOf(AgentError);
+    expect((exit.cause.error as AgentError).preservedWorktreePath).toBe(
+      worktreePath,
+    );
   });
 
   it("logs copy-to-sandbox as a spinner when copyToSandbox paths are provided", async () => {

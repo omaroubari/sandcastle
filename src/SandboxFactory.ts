@@ -1,4 +1,4 @@
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect, Exit, Layer } from "effect";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { randomUUID } from "node:crypto";
@@ -11,8 +11,10 @@ import {
   chownInContainer,
 } from "./DockerLifecycle.js";
 import {
+  AgentError,
   CopyError,
   ExecError,
+  TimeoutError,
   type DockerError,
   type WorktreeError,
 } from "./errors.js";
@@ -273,21 +275,13 @@ export class WorktreeSandboxConfig extends Context.Tag("WorktreeSandboxConfig")<
 >() {}
 
 /**
- * Synchronously force-remove a git worktree.
- * Used in process exit handlers where async operations are not possible.
+ * Print a message to stderr telling the developer where the preserved worktree is
+ * and how to clean it up manually.
  */
-const forceRemoveWorktreeSync = (
-  worktreePath: string,
-  repoDir: string,
-): void => {
-  try {
-    execFileSync("git", ["worktree", "remove", "--force", worktreePath], {
-      stdio: "ignore",
-      cwd: repoDir,
-    });
-  } catch {
-    // Best-effort — worktree may already be gone
-  }
+const printWorktreePreservedMessage = (worktreePath: string): void => {
+  console.error(`\nWorktree preserved at ${worktreePath}`);
+  console.error(`  To review: cd ${worktreePath}`);
+  console.error(`  To clean up: git worktree remove --force ${worktreePath}`);
 };
 
 /**
@@ -318,6 +312,9 @@ export const WorktreeDockerSandboxFactory = {
           Exclude<R, Sandbox>
         > => {
           const containerName = `sandcastle-${randomUUID()}`;
+          // Populated by the release phase when a worktree is preserved on failure,
+          // so we can attach the path to recognized error types before they propagate.
+          let preservedWorktreePath: string | undefined;
 
           return Effect.acquireUseRelease(
             // Acquire: prune stale worktrees (best-effort), create worktree, then start container
@@ -363,12 +360,14 @@ export const WorktreeDockerSandboxFactory = {
                     `${gitDir}:${gitDir}`,
                   ];
 
-                  const cleanup = () => {
+                  // On signals: remove the container but preserve the worktree so the
+                  // developer can inspect the agent's work.
+                  const cleanupContainerOnly = () => {
                     forceRemoveContainerSync(containerName);
-                    forceRemoveWorktreeSync(worktreeInfo.path, hostRepoDir);
                   };
                   const onSignal = () => {
-                    cleanup();
+                    cleanupContainerOnly();
+                    printWorktreePreservedMessage(worktreeInfo.path);
                     process.exit(1);
                   };
 
@@ -394,12 +393,18 @@ export const WorktreeDockerSandboxFactory = {
                     ),
                     Effect.tap(() =>
                       Effect.sync(() => {
-                        process.on("exit", cleanup);
+                        // exit handler only removes the container; the worktree is preserved
+                        // on abnormal exit just as on SIGINT/SIGTERM.
+                        process.on("exit", cleanupContainerOnly);
                         process.on("SIGINT", onSignal);
                         process.on("SIGTERM", onSignal);
                       }),
                     ),
-                    Effect.map(() => ({ worktreeInfo, cleanup, onSignal })),
+                    Effect.map(() => ({
+                      worktreeInfo,
+                      cleanupContainerOnly,
+                      onSignal,
+                    })),
                   );
                 }),
               ),
@@ -408,17 +413,46 @@ export const WorktreeDockerSandboxFactory = {
               makeEffect({ hostWorktreePath: worktreeInfo.path }).pipe(
                 Effect.provide(makeDockerSandboxLayer(containerName)),
               ) as Effect.Effect<A, E | DockerError, Exclude<R, Sandbox>>,
-            // Release: remove container, then remove worktree
-            ({ worktreeInfo, cleanup, onSignal }) =>
+            // Release: always remove container; remove worktree only on success.
+            ({ worktreeInfo, cleanupContainerOnly, onSignal }, exit) =>
               Effect.sync(() => {
-                process.removeListener("exit", cleanup);
+                process.removeListener("exit", cleanupContainerOnly);
                 process.removeListener("SIGINT", onSignal);
                 process.removeListener("SIGTERM", onSignal);
               }).pipe(
                 Effect.andThen(removeContainer(containerName)),
-                Effect.andThen(WorktreeManager.remove(worktreeInfo.path)),
+                Effect.andThen(
+                  Exit.isSuccess(exit)
+                    ? WorktreeManager.remove(worktreeInfo.path)
+                    : Effect.sync(() => {
+                        preservedWorktreePath = worktreeInfo.path;
+                        printWorktreePreservedMessage(worktreeInfo.path);
+                      }),
+                ),
                 Effect.orDie,
               ),
+          ).pipe(
+            // Attach the preserved worktree path to TimeoutError and AgentError so
+            // programmatic callers can build on top of the preserved worktree.
+            Effect.mapError((e: E | DockerError | WorktreeError) => {
+              const path = preservedWorktreePath;
+              if (path !== undefined) {
+                if (e instanceof TimeoutError) {
+                  return new TimeoutError({
+                    message: e.message,
+                    timeoutSeconds: e.timeoutSeconds,
+                    preservedWorktreePath: path,
+                  }) as unknown as E | DockerError | WorktreeError;
+                }
+                if (e instanceof AgentError) {
+                  return new AgentError({
+                    message: e.message,
+                    preservedWorktreePath: path,
+                  }) as unknown as E | DockerError | WorktreeError;
+                }
+              }
+              return e;
+            }),
           );
         },
       };
