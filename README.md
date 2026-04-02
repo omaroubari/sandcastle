@@ -134,6 +134,50 @@ console.log(result.commits); // array of { sha } for commits created
 console.log(result.branch); // target branch name
 ```
 
+### `createSandbox()` — reusable sandbox
+
+For multi-run workflows (e.g. implement then review), use `createSandbox()` to create a sandbox once and run multiple agents inside it, avoiding repeated container startup costs.
+
+```typescript
+import { createSandbox, claudeCode } from "@ai-hero/sandcastle";
+
+// Create a sandbox on an explicit branch
+await using sandbox = await createSandbox({
+  branch: "agent/fix-42",
+  // imageName, hooks, copyToSandbox — same as run()
+});
+
+// Run an implementer
+const implResult = await sandbox.run({
+  agent: claudeCode("claude-opus-4-6"),
+  promptFile: ".sandcastle/implement.md",
+  maxIterations: 5,
+});
+
+// Run a reviewer on the same sandbox
+const reviewResult = await sandbox.run({
+  agent: claudeCode("claude-sonnet-4-6"),
+  prompt: "Review the changes and fix any issues.",
+});
+
+// sandbox.close() is called automatically via `await using`.
+// If the worktree has uncommitted changes, it is preserved.
+// If clean, both container and worktree are removed.
+```
+
+`createSandbox()` requires an explicit branch — no temp-branch or no-worktree modes. Commits stay on the specified branch across all `run()` calls.
+
+You can also call `sandbox.close()` manually instead of using `await using`:
+
+```typescript
+const sandbox = await createSandbox({ branch: "agent/fix-42" });
+// ... run agents ...
+const closeResult = await sandbox.close();
+if (closeResult.preservedWorktreePath) {
+  console.log(`Worktree preserved at ${closeResult.preservedWorktreePath}`);
+}
+```
+
 ## How it works
 
 Sandcastle uses a worktree-based architecture for agent execution:

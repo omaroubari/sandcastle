@@ -225,7 +225,9 @@ const makeDockerSandbox = (
     };
   });
 
-const makeDockerSandboxLayer = (containerName: string): Layer.Layer<Sandbox> =>
+export const makeDockerSandboxLayer = (
+  containerName: string,
+): Layer.Layer<Sandbox> =>
   Layer.effect(Sandbox, makeDockerSandbox(containerName)).pipe(
     Layer.provide(NodeFileSystem.layer),
   );
