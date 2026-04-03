@@ -1,5 +1,11 @@
 # @ai-hero/sandcastle
 
+## 0.2.1
+
+### Patch Changes
+
+- fc62054: Fixed npm global install permission error in PI and Codex agent Dockerfiles by running `npm install -g` as root before switching to the `agent` user.
+
 ## 0.2.0
 
 ### Minor Changes
