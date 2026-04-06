@@ -13,6 +13,7 @@ import { orchestrate } from "./Orchestrator.js";
 import {
   claudeCode,
   codex as codexFactory,
+  opencode as opencodeFactory,
   pi as piFactory,
   DEFAULT_MODEL,
 } from "./AgentProvider.js";
@@ -2651,5 +2652,181 @@ describe("Orchestrator with codex provider", () => {
 
     expect(result.iterationsRun).toBe(1);
     expect(result.completionSignal).toBe("<promise>COMPLETE</promise>");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// OpenCode provider integration tests
+// ---------------------------------------------------------------------------
+
+const opencodeTestProvider = opencodeFactory("opencode/big-pickle");
+
+/** Format mock agent output as OpenCode JSON stream lines */
+const toOpenCodeStreamJson = (output: string | string[]): string => {
+  const chunks = Array.isArray(output) ? output : [output];
+  return chunks
+    .map((chunk) =>
+      JSON.stringify({
+        type: "text",
+        part: { type: "text", text: chunk },
+      }),
+    )
+    .join("\n");
+};
+
+/**
+ * Create a mock sandbox layer that intercepts `opencode` commands
+ * and runs a mock script instead.
+ */
+const makeMockOpenCodeAgentLayer = (
+  sandboxDir: string,
+  mockAgentBehavior: (sandboxRepoDir: string) => Promise<string | string[]>,
+): Layer.Layer<Sandbox> => {
+  const fsLayer = makeLocalSandboxLayer(sandboxDir);
+
+  return Layer.succeed(Sandbox, {
+    exec: (command, options) => {
+      if (command.startsWith("opencode ")) {
+        return Effect.gen(function* () {
+          const cwd = options?.cwd ?? sandboxDir;
+          const output = yield* Effect.promise(() => mockAgentBehavior(cwd));
+          const stdout: string = Array.isArray(output)
+            ? output.join("")
+            : output;
+          return {
+            stdout,
+            stderr: "",
+            exitCode: 0,
+          };
+        });
+      }
+      return Effect.flatMap(Sandbox, (real) =>
+        real.exec(command, options),
+      ).pipe(Effect.provide(fsLayer));
+    },
+    execStreaming: (command, onStdoutLine, options) => {
+      if (command.startsWith("opencode ")) {
+        return Effect.gen(function* () {
+          const cwd = options?.cwd ?? sandboxDir;
+          const output = yield* Effect.promise(() => mockAgentBehavior(cwd));
+          const streamOutput = toOpenCodeStreamJson(output);
+          for (const line of streamOutput.split("\n")) {
+            onStdoutLine(line);
+          }
+          return { stdout: streamOutput, stderr: "", exitCode: 0 };
+        });
+      }
+      return Effect.flatMap(Sandbox, (real) =>
+        real.execStreaming(command, onStdoutLine, options),
+      ).pipe(Effect.provide(fsLayer));
+    },
+    copyIn: (hostPath, sandboxPath) =>
+      Effect.flatMap(Sandbox, (real) =>
+        real.copyIn(hostPath, sandboxPath),
+      ).pipe(Effect.provide(fsLayer)),
+    copyOut: (sandboxPath, hostPath) =>
+      Effect.flatMap(Sandbox, (real) =>
+        real.copyOut(sandboxPath, hostPath),
+      ).pipe(Effect.provide(fsLayer)),
+  });
+};
+
+describe("Orchestrator with opencode provider", () => {
+  it("runs a single iteration with opencode provider and produces a commit", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "orch-opencode-host-"));
+    await initRepo(hostDir);
+    await commitFile(hostDir, "hello.txt", "hello", "initial commit");
+
+    const { factoryLayer, sandboxRepoDir } = makeTestSandboxFactory(
+      hostDir,
+      (dir) =>
+        makeMockOpenCodeAgentLayer(dir, async (repoDir) => {
+          await writeFile(
+            join(repoDir, "opencode-output.txt"),
+            "opencode was here",
+          );
+          await execAsync("git add -A", { cwd: repoDir });
+          await execAsync('git config user.email "agent@test.com"', {
+            cwd: repoDir,
+          });
+          await execAsync('git config user.name "Agent"', { cwd: repoDir });
+          await execAsync('git commit -m "RALPH: opencode agent commit"', {
+            cwd: repoDir,
+          });
+          return "Done with iteration.";
+        }),
+    );
+
+    const result = await Effect.runPromise(
+      orchestrate({
+        provider: opencodeTestProvider,
+        hostRepoDir: hostDir,
+        sandboxRepoDir,
+        iterations: 1,
+        prompt: "do some work",
+      }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
+    );
+
+    expect(result.iterationsRun).toBe(1);
+    const content = await readFile(
+      join(hostDir, "opencode-output.txt"),
+      "utf-8",
+    );
+    expect(content).toBe("opencode was here");
+  });
+
+  it("stops early on completion signal with opencode provider", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "orch-opencode-host-"));
+    await initRepo(hostDir);
+    await commitFile(hostDir, "hello.txt", "hello", "initial commit");
+
+    const { factoryLayer, sandboxRepoDir } = makeTestSandboxFactory(
+      hostDir,
+      (dir) =>
+        makeMockOpenCodeAgentLayer(dir, async () => {
+          return "All done. <promise>COMPLETE</promise>";
+        }),
+    );
+
+    const result = await Effect.runPromise(
+      orchestrate({
+        provider: opencodeTestProvider,
+        hostRepoDir: hostDir,
+        sandboxRepoDir,
+        iterations: 5,
+        prompt: "do some work",
+      }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
+    );
+
+    expect(result.iterationsRun).toBe(1);
+    expect(result.completionSignal).toBe("<promise>COMPLETE</promise>");
+  });
+
+  it("concatenates multi-part OpenCode text output before checking completion", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "orch-opencode-host-"));
+    await initRepo(hostDir);
+    await commitFile(hostDir, "hello.txt", "hello", "initial commit");
+
+    const { factoryLayer, sandboxRepoDir } = makeTestSandboxFactory(
+      hostDir,
+      (dir) =>
+        makeMockOpenCodeAgentLayer(dir, async () => {
+          return ["All done. <promise>", "COMPLETE</promise>"];
+        }),
+    );
+
+    const result = await Effect.runPromise(
+      orchestrate({
+        provider: opencodeTestProvider,
+        hostRepoDir: hostDir,
+        sandboxRepoDir,
+        iterations: 5,
+        prompt: "do some work",
+      }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
+    );
+
+    expect(result.iterationsRun).toBe(1);
+    expect(result.completionSignal).toBe("<promise>COMPLETE</promise>");
+    expect(result.stdout).toBe("All done. <promise>COMPLETE</promise>");
   });
 });

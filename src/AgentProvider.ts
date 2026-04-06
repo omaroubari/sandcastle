@@ -101,6 +101,7 @@ const parseStreamJsonLine = (line: string): ParsedStreamEvent[] => {
 
 export interface AgentProvider {
   readonly name: string;
+  readonly resultStrategy?: "stdout" | "streamed-text";
   buildPrintCommand(prompt: string): string;
   buildInteractiveArgs(prompt: string): string[];
   parseStreamLine(line: string): ParsedStreamEvent[];
@@ -247,5 +248,66 @@ export const claudeCode = (model: string): AgentProvider => ({
 
   parseStreamLine(line: string): ParsedStreamEvent[] {
     return parseStreamJsonLine(line);
+  },
+});
+
+// ---------------------------------------------------------------------------
+// OpenCode agent provider
+// ---------------------------------------------------------------------------
+
+const OPENCODE_TOOL_NAMES: Record<string, string> = {
+  bash: "Bash",
+  webfetch: "WebFetch",
+  websearch: "WebSearch",
+  task: "Agent",
+};
+
+const parseOpenCodeStreamLine = (line: string): ParsedStreamEvent[] => {
+  if (!line.startsWith("{")) return [];
+  try {
+    const obj = JSON.parse(line);
+
+    if (
+      obj.type === "text" &&
+      obj.part?.type === "text" &&
+      typeof obj.part.text === "string"
+    ) {
+      return [{ type: "text", text: obj.part.text }];
+    }
+
+    if (obj.type === "tool_use") {
+      const toolName = obj.part?.tool;
+      if (typeof toolName !== "string") return [];
+      const displayName = OPENCODE_TOOL_NAMES[toolName] ?? toolName;
+      const argField = TOOL_ARG_FIELDS[displayName];
+      if (argField === undefined) return [];
+      const input = obj.part?.state?.input as
+        | Record<string, unknown>
+        | undefined;
+      if (!input) return [];
+      const argValue = input[argField];
+      if (typeof argValue !== "string") return [];
+      return [{ type: "tool_call", name: displayName, args: argValue }];
+    }
+  } catch {
+    // Not valid JSON — skip
+  }
+  return [];
+};
+
+export const opencode = (model: string): AgentProvider => ({
+  name: "opencode",
+  resultStrategy: "streamed-text",
+
+  buildPrintCommand(prompt: string): string {
+    return `opencode run --format json --model ${shellEscape(model)} ${shellEscape(prompt)}`;
+  },
+
+  buildInteractiveArgs(_prompt: string): string[] {
+    return ["opencode", "--model", model];
+  },
+
+  parseStreamLine(line: string): ParsedStreamEvent[] {
+    return parseOpenCodeStreamLine(line);
   },
 });

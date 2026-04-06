@@ -20,6 +20,7 @@ const makeDir = () => mkdtemp(join(tmpdir(), "init-service-"));
 const claudeCodeAgent = getAgent("claude-code")!;
 const piAgent = getAgent("pi")!;
 const codexAgent = getAgent("codex")!;
+const opencodeAgent = getAgent("opencode")!;
 
 const defaultOptions: ScaffoldOptions = {
   agent: claudeCodeAgent,
@@ -86,6 +87,21 @@ describe("Agent registry", () => {
     expect(agent!.factoryImport).toBe("codex");
     expect(agent!.dockerfileTemplate).toContain("FROM");
     expect(agent!.dockerfileTemplate).toContain("@openai/codex");
+  });
+
+  it("listAgents includes opencode", () => {
+    const agents = listAgents();
+    expect(agents.some((a) => a.name === "opencode")).toBe(true);
+  });
+
+  it("getAgent returns opencode entry with expected fields", () => {
+    const agent = getAgent("opencode");
+    expect(agent).toBeDefined();
+    expect(agent!.name).toBe("opencode");
+    expect(agent!.defaultModel).toBe("opencode/big-pickle");
+    expect(agent!.factoryImport).toBe("opencode");
+    expect(agent!.dockerfileTemplate).toContain("FROM");
+    expect(agent!.dockerfileTemplate).toContain("opencode-ai@latest");
   });
 });
 
@@ -548,6 +564,37 @@ describe("InitService scaffold", () => {
       "utf-8",
     );
     expect(mainTs).toContain('codex("gpt-5.4-mini")');
+    expect(mainTs).not.toContain("claudeCode");
+  });
+
+  it("scaffolds opencode agent with OpenCode Dockerfile", async () => {
+    const dir = await makeDir();
+    await runScaffold(dir, {
+      agent: opencodeAgent,
+      model: "opencode/big-pickle",
+    });
+
+    const dockerfile = await readFile(
+      join(dir, ".sandcastle", "Dockerfile"),
+      "utf-8",
+    );
+    expect(dockerfile).toBe(opencodeAgent.dockerfileTemplate);
+    expect(dockerfile).toContain("opencode-ai@latest");
+    expect(dockerfile).toContain("apt-get install -y \\");
+  });
+
+  it("scaffolds main.mts with OpenCode factory import when OpenCode agent selected", async () => {
+    const dir = await makeDir();
+    await runScaffold(dir, {
+      agent: opencodeAgent,
+      model: "opencode/big-pickle",
+    });
+
+    const mainTs = await readFile(
+      join(dir, ".sandcastle", "main.mts"),
+      "utf-8",
+    );
+    expect(mainTs).toContain('opencode("opencode/big-pickle")');
     expect(mainTs).not.toContain("claudeCode");
   });
 

@@ -14,5 +14,5 @@ export type {
   CloseResult,
 } from "./createSandbox.js";
 export type { PromptArgs } from "./PromptArgumentSubstitution.js";
-export { claudeCode, codex, pi } from "./AgentProvider.js";
+export { claudeCode, codex, opencode, pi } from "./AgentProvider.js";
 export type { AgentProvider } from "./AgentProvider.js";

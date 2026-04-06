@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { claudeCode, codex, pi } from "./AgentProvider.js";
+import { claudeCode, codex, opencode, pi } from "./AgentProvider.js";
 
 describe("claudeCode factory", () => {
   it("returns a provider with name 'claude-code'", () => {
@@ -391,6 +391,104 @@ describe("codex factory", () => {
   it("bakes model into each provider instance independently", () => {
     const provider1 = codex("model-a");
     const provider2 = codex("model-b");
+    expect(provider1.buildPrintCommand("test")).toContain("model-a");
+    expect(provider2.buildPrintCommand("test")).toContain("model-b");
+    expect(provider1.buildPrintCommand("test")).not.toContain("model-b");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// OpenCode factory
+// ---------------------------------------------------------------------------
+
+describe("opencode factory", () => {
+  it("returns a provider with name 'opencode'", () => {
+    const provider = opencode("opencode/big-pickle");
+    expect(provider.name).toBe("opencode");
+  });
+
+  it("does not expose envManifest or dockerfileTemplate", () => {
+    const provider = opencode("opencode/big-pickle");
+    expect(provider).not.toHaveProperty("envManifest");
+    expect(provider).not.toHaveProperty("dockerfileTemplate");
+  });
+
+  it("buildPrintCommand includes the model and JSON format flag", () => {
+    const provider = opencode("opencode/big-pickle");
+    const command = provider.buildPrintCommand("do something");
+    expect(command).toContain("opencode/big-pickle");
+    expect(command).toContain("opencode run");
+    expect(command).toContain("--format json");
+  });
+
+  it("buildPrintCommand shell-escapes the prompt", () => {
+    const provider = opencode("opencode/big-pickle");
+    const command = provider.buildPrintCommand("it's a test");
+    expect(command).toContain("'it'\\''s a test'");
+  });
+
+  it("buildPrintCommand shell-escapes the model", () => {
+    const provider = opencode("opencode/big-pickle");
+    const command = provider.buildPrintCommand("do something");
+    expect(command).toContain("--model 'opencode/big-pickle'");
+  });
+
+  it("buildInteractiveArgs includes the binary and model", () => {
+    const provider = opencode("opencode/big-pickle");
+    const args = provider.buildInteractiveArgs("");
+    expect(args[0]).toBe("opencode");
+    expect(args).toContain("opencode/big-pickle");
+    expect(args).toContain("--model");
+  });
+
+  it("parseStreamLine extracts text from completed text events", () => {
+    const provider = opencode("opencode/big-pickle");
+    const line = JSON.stringify({
+      type: "text",
+      part: { type: "text", text: "Hello world" },
+    });
+    expect(provider.parseStreamLine(line)).toEqual([
+      { type: "text", text: "Hello world" },
+    ]);
+  });
+
+  it("parseStreamLine extracts tool calls from OpenCode tool events", () => {
+    const provider = opencode("opencode/big-pickle");
+    const line = JSON.stringify({
+      type: "tool_use",
+      part: {
+        tool: "bash",
+        state: { input: { command: "npm test" } },
+      },
+    });
+    expect(provider.parseStreamLine(line)).toEqual([
+      { type: "tool_call", name: "Bash", args: "npm test" },
+    ]);
+  });
+
+  it("parseStreamLine maps task tool calls to Agent", () => {
+    const provider = opencode("opencode/big-pickle");
+    const line = JSON.stringify({
+      type: "tool_use",
+      part: {
+        tool: "task",
+        state: { input: { description: "Inspect codebase" } },
+      },
+    });
+    expect(provider.parseStreamLine(line)).toEqual([
+      { type: "tool_call", name: "Agent", args: "Inspect codebase" },
+    ]);
+  });
+
+  it("parseStreamLine returns empty array for non-JSON lines", () => {
+    const provider = opencode("opencode/big-pickle");
+    expect(provider.parseStreamLine("not json")).toEqual([]);
+    expect(provider.parseStreamLine("")).toEqual([]);
+  });
+
+  it("bakes model into each provider instance independently", () => {
+    const provider1 = opencode("model-a");
+    const provider2 = opencode("model-b");
     expect(provider1.buildPrintCommand("test")).toContain("model-a");
     expect(provider2.buildPrintCommand("test")).toContain("model-b");
     expect(provider1.buildPrintCommand("test")).not.toContain("model-b");

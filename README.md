@@ -16,6 +16,8 @@ A TypeScript library for orchestrating AI coding agents in isolated Docker conta
 
 Great for parallelizing multiple AFK agents, creating review pipelines, or even just orchestrating your own agents.
 
+Built-in agent providers include Claude Code, Pi, Codex, and OpenCode.
+
 ## Prerequisites
 
 - [Docker Desktop](https://www.docker.com/)
@@ -35,7 +37,7 @@ npm install @ai-hero/sandcastle
 npx sandcastle init
 ```
 
-3. Edit `.sandcastle/.env` and fill in your default values for `ANTHROPIC_API_KEY`
+3. Copy `.sandcastle/.env.example` to `.sandcastle/.env` and add any credentials your chosen agent needs. For Claude Code, fill in `ANTHROPIC_API_KEY`. The default OpenCode model, `opencode/big-pickle`, does not require extra env vars.
 
 ```bash
 cp .sandcastle/.env.example .sandcastle/.env
@@ -72,6 +74,24 @@ const result = await run({
 console.log(result.iterationsRun); // number of iterations executed
 console.log(result.commits); // array of { sha } for commits created
 console.log(result.branch); // target branch name
+```
+
+### Agent providers
+
+Sandcastle ships with four built-in agent providers:
+
+- `claudeCode("claude-opus-4-6")`
+- `pi("claude-sonnet-4-6")`
+- `codex("gpt-5.4-mini")`
+- `opencode("opencode/big-pickle")`
+
+```typescript
+import { opencode, run } from "@ai-hero/sandcastle";
+
+await run({
+  agent: opencode("opencode/big-pickle"),
+  promptFile: ".sandcastle/prompt.md",
+});
 ```
 
 ### All options
@@ -219,17 +239,17 @@ if (closeResult.preservedWorktreePath) {
 
 #### `SandboxRunOptions`
 
-| Option               | Type               | Default                       | Description                                                         |
-| -------------------- | ------------------ | ----------------------------- | ------------------------------------------------------------------- |
-| `agent`              | AgentProvider      | —                             | **Required.** Agent provider (e.g. `claudeCode("claude-opus-4-6")`) |
-| `prompt`             | string             | —                             | Inline prompt (mutually exclusive with `promptFile`)                |
-| `promptFile`         | string             | —                             | Path to prompt file (mutually exclusive with `prompt`)              |
-| `promptArgs`         | PromptArgs         | —                             | Key-value map for `{{KEY}}` placeholder substitution                |
-| `maxIterations`      | number             | `1`                           | Maximum iterations to run                                           |
-| `completionSignal`   | string \| string[] | `<promise>COMPLETE</promise>` | String(s) the agent emits to stop the iteration loop early          |
-| `idleTimeoutSeconds` | number             | `600`                         | Idle timeout in seconds — resets on each agent output event         |
-| `name`               | string             | —                             | Display name for the run                                            |
-| `logging`            | object             | file (auto-generated)         | `{ type: 'file', path }` or `{ type: 'stdout' }`                    |
+| Option               | Type               | Default                       | Description                                                                                            |
+| -------------------- | ------------------ | ----------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `agent`              | AgentProvider      | —                             | **Required.** Agent provider (e.g. `claudeCode("claude-opus-4-6")`, `opencode("opencode/big-pickle")`) |
+| `prompt`             | string             | —                             | Inline prompt (mutually exclusive with `promptFile`)                                                   |
+| `promptFile`         | string             | —                             | Path to prompt file (mutually exclusive with `prompt`)                                                 |
+| `promptArgs`         | PromptArgs         | —                             | Key-value map for `{{KEY}}` placeholder substitution                                                   |
+| `maxIterations`      | number             | `1`                           | Maximum iterations to run                                                                              |
+| `completionSignal`   | string \| string[] | `<promise>COMPLETE</promise>` | String(s) the agent emits to stop the iteration loop early                                             |
+| `idleTimeoutSeconds` | number             | `600`                         | Idle timeout in seconds — resets on each agent output event                                            |
+| `name`               | string             | —                             | Display name for the run                                                                               |
+| `logging`            | object             | file (auto-generated)         | `{ type: 'file', path }` or `{ type: 'stdout' }`                                                       |
 
 #### `SandboxRunResult`
 
@@ -380,7 +400,7 @@ Scaffolds the `.sandcastle/` config directory and builds the Docker image. This 
 | Option         | Required | Default                      | Description                                                          |
 | -------------- | -------- | ---------------------------- | -------------------------------------------------------------------- |
 | `--image-name` | No       | `sandcastle:<repo-dir-name>` | Docker image name                                                    |
-| `--agent`      | No       | Interactive prompt           | Agent to use (`claude-code`, `pi`, `codex`)                          |
+| `--agent`      | No       | Interactive prompt           | Agent to use (`claude-code`, `pi`, `codex`, `opencode`)              |
 | `--model`      | No       | Agent's default model        | Model to use (e.g. `claude-sonnet-4-6`). Defaults to agent's default |
 | `--template`   | No       | Interactive prompt           | Template to scaffold (e.g. `blank`, `simple-loop`)                   |
 
@@ -415,21 +435,21 @@ Removes the Docker image.
 
 ### `RunOptions`
 
-| Option               | Type               | Default                       | Description                                                                                                             |
-| -------------------- | ------------------ | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `agent`              | AgentProvider      | —                             | **Required.** Agent provider (e.g. `claudeCode("claude-opus-4-6")`, `pi("claude-sonnet-4-6")`, `codex("gpt-5.4-mini")`) |
-| `prompt`             | string             | —                             | Inline prompt (mutually exclusive with `promptFile`)                                                                    |
-| `promptFile`         | string             | —                             | Path to prompt file (mutually exclusive with `prompt`)                                                                  |
-| `maxIterations`      | number             | `1`                           | Maximum iterations to run                                                                                               |
-| `hooks`              | object             | —                             | Lifecycle hooks (`onSandboxReady`)                                                                                      |
-| `worktree`           | WorktreeMode       | `{ mode: 'temp-branch' }`     | Worktree mode: `{ mode: 'none' }`, `{ mode: 'temp-branch' }`, or `{ mode: 'branch', branch }`                           |
-| `imageName`          | string             | `sandcastle:<repo-dir-name>`  | Docker image name for the sandbox                                                                                       |
-| `name`               | string             | —                             | Display name for the run, shown as a prefix in log output                                                               |
-| `promptArgs`         | PromptArgs         | —                             | Key-value map for `{{KEY}}` placeholder substitution                                                                    |
-| `copyToSandbox`      | string[]           | —                             | Host-relative file paths to copy into the worktree before start (not supported with `mode: 'none'`)                     |
-| `logging`            | object             | file (auto-generated)         | `{ type: 'file', path }` or `{ type: 'stdout' }`                                                                        |
-| `completionSignal`   | string \| string[] | `<promise>COMPLETE</promise>` | String or array of strings the agent emits to stop the iteration loop early                                             |
-| `idleTimeoutSeconds` | number             | `600`                         | Idle timeout in seconds — resets on each agent output event                                                             |
+| Option               | Type               | Default                       | Description                                                                                                                                                |
+| -------------------- | ------------------ | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agent`              | AgentProvider      | —                             | **Required.** Agent provider (e.g. `claudeCode("claude-opus-4-6")`, `pi("claude-sonnet-4-6")`, `codex("gpt-5.4-mini")`, `opencode("opencode/big-pickle")`) |
+| `prompt`             | string             | —                             | Inline prompt (mutually exclusive with `promptFile`)                                                                                                       |
+| `promptFile`         | string             | —                             | Path to prompt file (mutually exclusive with `prompt`)                                                                                                     |
+| `maxIterations`      | number             | `1`                           | Maximum iterations to run                                                                                                                                  |
+| `hooks`              | object             | —                             | Lifecycle hooks (`onSandboxReady`)                                                                                                                         |
+| `worktree`           | WorktreeMode       | `{ mode: 'temp-branch' }`     | Worktree mode: `{ mode: 'none' }`, `{ mode: 'temp-branch' }`, or `{ mode: 'branch', branch }`                                                              |
+| `imageName`          | string             | `sandcastle:<repo-dir-name>`  | Docker image name for the sandbox                                                                                                                          |
+| `name`               | string             | —                             | Display name for the run, shown as a prefix in log output                                                                                                  |
+| `promptArgs`         | PromptArgs         | —                             | Key-value map for `{{KEY}}` placeholder substitution                                                                                                       |
+| `copyToSandbox`      | string[]           | —                             | Host-relative file paths to copy into the worktree before start (not supported with `mode: 'none'`)                                                        |
+| `logging`            | object             | file (auto-generated)         | `{ type: 'file', path }` or `{ type: 'stdout' }`                                                                                                           |
+| `completionSignal`   | string \| string[] | `<promise>COMPLETE</promise>` | String or array of strings the agent emits to stop the iteration loop early                                                                                |
+| `idleTimeoutSeconds` | number             | `600`                         | Idle timeout in seconds — resets on each agent output event                                                                                                |
 
 ### `RunResult`
 

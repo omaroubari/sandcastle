@@ -26,6 +26,7 @@ const invokeAgent = (
 ): Effect.Effect<{ result: string; usage: TokenUsage | null }, SandboxError> =>
   Effect.gen(function* () {
     let resultText = "";
+    let streamedText = "";
     let tokenUsage: TokenUsage | null = null;
 
     // Deferred that will be failed when the idle timer fires
@@ -71,6 +72,7 @@ const invokeAgent = (
         (line) => {
           for (const parsed of provider.parseStreamLine(line)) {
             if (parsed.type === "text") {
+              streamedText += parsed.text;
               resetIdleTimer();
               onText(parsed.text);
             } else if (parsed.type === "result") {
@@ -93,7 +95,12 @@ const invokeAgent = (
         );
       }
 
-      return { result: resultText || execResult.stdout, usage: tokenUsage };
+      const fallbackResult =
+        provider.resultStrategy === "streamed-text"
+          ? streamedText || execResult.stdout
+          : execResult.stdout;
+
+      return { result: resultText || fallbackResult, usage: tokenUsage };
     }).pipe(
       Effect.ensuring(
         Effect.sync(() => {

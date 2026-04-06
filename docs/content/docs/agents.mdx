@@ -7,9 +7,9 @@ description: Learn about agent providers and how to configure them.
 
 An agent provider defines how Sandcastle interacts with a specific AI coding tool. Each provider declares:
 
-- An **env manifest** -- which environment variables it requires
-- An **env check** -- validation that runs before the agent starts
-- A **Dockerfile template** -- used during `sandcastle init` to scaffold the sandbox
+- A command builder for non-interactive runs
+- A command builder for interactive sessions
+- A stream parser that normalizes provider output into Sandcastle events
 
 ## Built-in Providers
 
@@ -17,13 +17,29 @@ An agent provider defines how Sandcastle interacts with a specific AI coding too
 
 The default agent provider. Uses Claude Code as the AI coding agent inside the sandbox.
 
-Required environment variables:
+### Pi
 
-| Variable | Description |
-| --- | --- |
-| `ANTHROPIC_API_KEY` | Anthropic API key |
-| `GH_TOKEN` | GitHub personal access token |
+Uses the Pi coding agent inside the sandbox.
+
+### Codex
+
+Uses the OpenAI Codex CLI inside the sandbox.
+
+### OpenCode
+
+Uses the OpenCode CLI inside the sandbox.
+
+Example:
+
+```ts
+import { opencode, run } from "@ai-hero/sandcastle";
+
+await run({
+  agent: opencode("opencode/big-pickle"),
+  promptFile: ".sandcastle/prompt.md",
+});
+```
 
 ## Custom Providers
 
-Agent providers are swappable. To add support for a different AI coding tool, create a new provider that implements the agent provider interface with its own env manifest, env check, and Dockerfile template.
+Agent providers are swappable. To add support for a different AI coding tool, create a new provider that implements the agent provider interface and translates that tool's CLI output into Sandcastle's normalized stream events.
