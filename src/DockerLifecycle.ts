@@ -116,13 +116,17 @@ export const startContainer = (
 /**
  * Fix ownership of a directory inside the container.
  * Runs as root so the target owner can write to the path.
+ *
+ * Non-fatal: if chown fails (e.g. read-only .git/objects on macOS VirtioFS),
+ * a warning is logged but the error is not propagated.
+ *
  * @param owner - chown-compatible owner spec, e.g. "1000:1000" or "agent"
  */
 export const chownInContainer = (
   containerName: string,
   owner: string,
   path: string,
-): Effect.Effect<void, DockerError> =>
+): Effect.Effect<void> =>
   Effect.asVoid(
     dockerExec([
       "exec",
@@ -134,6 +138,13 @@ export const chownInContainer = (
       owner,
       path,
     ]),
+  ).pipe(
+    Effect.catchAll((error) => {
+      console.warn(
+        `chown -R ${owner} ${path} in container ${containerName} failed (non-fatal): ${error.message}`,
+      );
+      return Effect.void;
+    }),
   );
 
 /**
