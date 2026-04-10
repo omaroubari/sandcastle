@@ -16,10 +16,7 @@ import {
   SandboxConfig,
   SANDBOX_WORKSPACE_DIR,
 } from "./SandboxFactory.js";
-import type {
-  SandboxProvider,
-  BindMountBranchStrategy,
-} from "./SandboxProvider.js";
+import type { SandboxProvider } from "./SandboxProvider.js";
 import { resolveEnv } from "./EnvResolver.js";
 import { generateTempBranchName, getCurrentBranch } from "./WorktreeManager.js";
 import {
@@ -133,17 +130,6 @@ export type LoggingOption =
   /** Render progress and agent output as an interactive UI in the terminal (terminal mode). */
   | { readonly type: "stdout" };
 
-/**
- * Worktree mode discriminated union.
- * - `none`: bind-mounts host working directory directly; no worktree, no merge step.
- * - `temp-branch`: creates a temporary worktree/branch, merges back, deletes the temp branch (default).
- * - `branch`: creates a worktree on an explicit branch; commits stay on that branch.
- */
-export type WorktreeMode =
-  | { readonly mode: "none" }
-  | { readonly mode: "temp-branch" }
-  | { readonly mode: "branch"; readonly branch: string };
-
 export interface RunOptions {
   /** Agent provider to use (e.g. claudeCode("claude-opus-4-6")) */
   readonly agent: AgentProvider;
@@ -159,8 +145,6 @@ export interface RunOptions {
   readonly hooks?: {
     readonly onSandboxReady?: ReadonlyArray<{ command: string }>;
   };
-  /** Worktree mode for sandbox work. Defaults to `{ mode: 'temp-branch' }` when omitted. */
-  readonly worktree?: WorktreeMode;
   /** Key-value map for {{KEY}} placeholder substitution in prompts */
   readonly promptArgs?: PromptArgs;
   /** Logging mode (default: { type: 'file' } with auto-generated path under .sandcastle/logs/) */
@@ -201,23 +185,9 @@ export const run = async (options: RunOptions): Promise<RunResult> => {
     agent: provider,
   } = options;
 
-  // Derive branch strategy from the sandbox provider (bind-mount providers expose it)
-  const branchStrategy: BindMountBranchStrategy | undefined =
-    options.sandbox.tag === "bind-mount"
-      ? options.sandbox.branchStrategy
-      : undefined;
-
-  // Also support legacy worktree option as fallback
-  let effectiveBranchType: "head" | "merge-to-head" | "branch";
-  if (branchStrategy) {
-    effectiveBranchType = branchStrategy.type;
-  } else if (options.worktree?.mode === "none") {
-    effectiveBranchType = "head";
-  } else if (options.worktree?.mode === "branch") {
-    effectiveBranchType = "branch";
-  } else {
-    effectiveBranchType = "merge-to-head";
-  }
+  // Derive branch strategy from the sandbox provider
+  const branchStrategy = options.sandbox.branchStrategy;
+  const effectiveBranchType = branchStrategy.type;
 
   // Validate: copyToSandbox is incompatible with head strategy
   if (
@@ -232,12 +202,8 @@ export const run = async (options: RunOptions): Promise<RunResult> => {
   }
 
   // Extract explicit branch when in branch mode
-  let branch: string | undefined;
-  if (branchStrategy?.type === "branch") {
-    branch = branchStrategy.branch;
-  } else if (options.worktree?.mode === "branch") {
-    branch = options.worktree.branch;
-  }
+  const branch: string | undefined =
+    branchStrategy.type === "branch" ? branchStrategy.branch : undefined;
 
   const hostRepoDir = process.cwd();
 

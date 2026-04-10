@@ -86,7 +86,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   await sandcastle.run({
     hooks,
     copyToSandbox,
-    sandbox: docker(),
+    sandbox: docker({ branchStrategy: { type: "branch", branch } }),
     name: "reviewer",
     maxIterations: 10,
     agent: sandcastle.claudeCode("claude-sonnet-4-6"),
@@ -96,7 +96,6 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     promptArgs: {
       BRANCH: branch,
     },
-    worktree: { mode: "branch", branch },
   });
 
   console.log("\nReview complete.");

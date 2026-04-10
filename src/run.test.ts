@@ -9,7 +9,6 @@ import {
   sanitizeBranchForFilename,
   type RunOptions,
   type RunResult,
-  type WorktreeMode,
 } from "./run.js";
 import { claudeCode } from "./AgentProvider.js";
 import { defaultImageName } from "./sandboxes/docker.js";
@@ -207,45 +206,13 @@ describe("RunOptions", () => {
     expect(opts.name).toBeUndefined();
   });
 
-  it("accepts worktree with none mode", () => {
-    const opts: RunOptions = {
-      agent: claudeCode("claude-opus-4-6"),
-      sandbox: testSandbox,
-      prompt: "test",
-      worktree: { mode: "none" },
-    };
-    expect(opts.worktree).toEqual({ mode: "none" });
-  });
-
-  it("accepts worktree with temp-branch mode", () => {
-    const opts: RunOptions = {
-      agent: claudeCode("claude-opus-4-6"),
-      sandbox: testSandbox,
-      prompt: "test",
-      worktree: { mode: "temp-branch" },
-    };
-    expect(opts.worktree).toEqual({ mode: "temp-branch" });
-  });
-
-  it("accepts worktree with branch mode", () => {
-    const opts: RunOptions = {
-      agent: claudeCode("claude-opus-4-6"),
-      sandbox: testSandbox,
-      prompt: "test",
-      worktree: { mode: "branch", branch: "feature/my-work" },
-    };
-    expect(opts.worktree).toEqual({
-      mode: "branch",
-      branch: "feature/my-work",
-    });
-  });
-
-  it("allows worktree to be omitted (defaults to temp-branch)", () => {
+  it("does not accept a worktree field", () => {
     const opts: RunOptions = {
       agent: claudeCode("claude-opus-4-6"),
       sandbox: testSandbox,
       prompt: "test",
     };
+    // @ts-expect-error worktree is no longer a valid field on RunOptions
     expect(opts.worktree).toBeUndefined();
   });
 
@@ -270,36 +237,24 @@ describe("RunOptions", () => {
   });
 });
 
-describe("WorktreeMode", () => {
-  it("temp-branch mode has no branch field", () => {
-    const mode: WorktreeMode = { mode: "temp-branch" };
-    expect(mode.mode).toBe("temp-branch");
-    // @ts-expect-error branch does not exist on temp-branch mode
-    expect(mode.branch).toBeUndefined();
-  });
+describe("copyToSandbox with head branch strategy", () => {
+  it("throws a runtime error when copyToSandbox is provided with head strategy", async () => {
+    const headSandbox = createBindMountSandboxProvider({
+      name: "test-head",
+      branchStrategy: { type: "head" },
+      create: async () => ({
+        workspacePath: "/home/agent/workspace",
+        exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+        execStreaming: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+        close: async () => {},
+      }),
+    });
 
-  it("branch mode requires a branch field", () => {
-    const mode: WorktreeMode = { mode: "branch", branch: "my-branch" };
-    expect(mode.mode).toBe("branch");
-    expect(mode.branch).toBe("my-branch");
-  });
-
-  it("none mode has no branch field", () => {
-    const mode: WorktreeMode = { mode: "none" };
-    expect(mode.mode).toBe("none");
-    // @ts-expect-error branch does not exist on none mode
-    expect(mode.branch).toBeUndefined();
-  });
-});
-
-describe("copyToSandbox with mode none", () => {
-  it("throws a runtime error when copyToSandbox is provided with mode none", async () => {
     await expect(
       run({
         agent: claudeCode("claude-opus-4-6"),
-        sandbox: testSandbox,
+        sandbox: headSandbox,
         prompt: "test",
-        worktree: { mode: "none" },
         copyToSandbox: [".env"],
       }),
     ).rejects.toThrow(

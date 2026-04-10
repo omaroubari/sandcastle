@@ -1,10 +1,5 @@
 export { run } from "./run.js";
-export type {
-  RunOptions,
-  RunResult,
-  LoggingOption,
-  WorktreeMode,
-} from "./run.js";
+export type { RunOptions, RunResult, LoggingOption } from "./run.js";
 export { createSandbox } from "./createSandbox.js";
 export type {
   CreateSandboxOptions,

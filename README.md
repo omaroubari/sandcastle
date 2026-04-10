@@ -437,10 +437,9 @@ Removes the Docker image.
 | `promptFile`         | string             | —                             | Path to prompt file (mutually exclusive with `prompt`)                                                                  |
 | `maxIterations`      | number             | `1`                           | Maximum iterations to run                                                                                               |
 | `hooks`              | object             | —                             | Lifecycle hooks (`onSandboxReady`)                                                                                      |
-| `worktree`           | WorktreeMode       | `{ mode: 'temp-branch' }`     | Worktree mode: `{ mode: 'none' }`, `{ mode: 'temp-branch' }`, or `{ mode: 'branch', branch }`                           |
 | `name`               | string             | —                             | Display name for the run, shown as a prefix in log output                                                               |
 | `promptArgs`         | PromptArgs         | —                             | Key-value map for `{{KEY}}` placeholder substitution                                                                    |
-| `copyToSandbox`      | string[]           | —                             | Host-relative file paths to copy into the worktree before start (not supported with `mode: 'none'`)                     |
+| `copyToSandbox`      | string[]           | —                             | Host-relative file paths to copy into the sandbox before start (not supported with `branchStrategy: { type: 'head' }`)  |
 | `logging`            | object             | file (auto-generated)         | `{ type: 'file', path }` or `{ type: 'stdout' }`                                                                        |
 | `completionSignal`   | string \| string[] | `<promise>COMPLETE</promise>` | String or array of strings the agent emits to stop the iteration loop early                                             |
 | `idleTimeoutSeconds` | number             | `600`                         | Idle timeout in seconds — resets on each agent output event                                                             |
