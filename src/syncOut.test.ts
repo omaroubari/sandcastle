@@ -166,6 +166,120 @@ describe("syncOut", () => {
     }
   });
 
+  it("extracts uncommitted staged and unstaged changes to host", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "host-"));
+    await initRepo(hostDir);
+    await commitFile(hostDir, "initial.txt", "initial", "initial commit");
+
+    const provider = testIsolated();
+    const handle = await provider.create({ env: {} });
+    try {
+      await syncIn(hostDir, handle);
+
+      const wp = handle.workspacePath;
+      // Modify tracked file (unstaged change)
+      await handle.exec('echo "modified content" > initial.txt', { cwd: wp });
+      // Create and stage a new file
+      await handle.exec('echo "staged file" > staged.txt', { cwd: wp });
+      await handle.exec("git add staged.txt", { cwd: wp });
+
+      await syncOut(hostDir, handle);
+
+      // Verify uncommitted changes appear on host
+      const initialContent = await readFile(
+        join(hostDir, "initial.txt"),
+        "utf-8",
+      );
+      expect(initialContent.trim()).toBe("modified content");
+
+      const stagedContent = await readFile(
+        join(hostDir, "staged.txt"),
+        "utf-8",
+      );
+      expect(stagedContent.trim()).toBe("staged file");
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it("extracts untracked files from sandbox to host", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "host-"));
+    await initRepo(hostDir);
+    await commitFile(hostDir, "initial.txt", "initial", "initial commit");
+
+    const provider = testIsolated();
+    const handle = await provider.create({ env: {} });
+    try {
+      await syncIn(hostDir, handle);
+
+      const wp = handle.workspacePath;
+      // Create untracked files (not git-added)
+      await handle.exec('echo "untracked1" > untracked1.txt', { cwd: wp });
+      await handle.exec("mkdir -p subdir", { cwd: wp });
+      await handle.exec('echo "untracked2" > subdir/untracked2.txt', {
+        cwd: wp,
+      });
+
+      await syncOut(hostDir, handle);
+
+      // Verify untracked files appear on host
+      const u1 = await readFile(join(hostDir, "untracked1.txt"), "utf-8");
+      expect(u1.trim()).toBe("untracked1");
+
+      const u2 = await readFile(
+        join(hostDir, "subdir/untracked2.txt"),
+        "utf-8",
+      );
+      expect(u2.trim()).toBe("untracked2");
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it("extracts commits + uncommitted changes + untracked files together", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "host-"));
+    await initRepo(hostDir);
+    await commitFile(hostDir, "initial.txt", "initial", "initial commit");
+
+    const provider = testIsolated();
+    const handle = await provider.create({ env: {} });
+    try {
+      await syncIn(hostDir, handle);
+
+      const wp = handle.workspacePath;
+
+      // 1. Make a commit
+      await handle.exec('echo "committed" > committed.txt', { cwd: wp });
+      await handle.exec("git add committed.txt", { cwd: wp });
+      await handle.exec('git commit -m "add committed file"', { cwd: wp });
+
+      // 2. Leave uncommitted changes
+      await handle.exec('echo "modified" > initial.txt', { cwd: wp });
+
+      // 3. Leave untracked file
+      await handle.exec('echo "brand new" > untracked.txt', { cwd: wp });
+
+      await syncOut(hostDir, handle);
+
+      // Verify committed changes
+      const log = await getLog(hostDir);
+      expect(log).toHaveLength(2);
+      expect(log[0]).toContain("add committed file");
+      const committed = await readFile(join(hostDir, "committed.txt"), "utf-8");
+      expect(committed.trim()).toBe("committed");
+
+      // Verify uncommitted changes
+      const modified = await readFile(join(hostDir, "initial.txt"), "utf-8");
+      expect(modified.trim()).toBe("modified");
+
+      // Verify untracked files
+      const untracked = await readFile(join(hostDir, "untracked.txt"), "utf-8");
+      expect(untracked.trim()).toBe("brand new");
+    } finally {
+      await handle.close();
+    }
+  });
+
   it("preserves commit author and message metadata", async () => {
     const hostDir = await mkdtemp(join(tmpdir(), "host-"));
     await initRepo(hostDir);

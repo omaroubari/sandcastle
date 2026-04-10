@@ -1,16 +1,15 @@
 /**
- * Sync-out: extract committed changes from an isolated sandbox back to the host
- * via git format-patch and git am.
+ * Sync-out: extract changes from an isolated sandbox back to the host.
  *
- * 1. `git format-patch` inside the sandbox to generate patch files
- * 2. Filter out empty/header-only patches (e.g. from merge commits)
- * 3. `copyOut` each patch file to the host
- * 4. `git am --3way` on the host to apply them
+ * Three-prong approach:
+ * 1. Committed changes: `git format-patch` + `git am --3way`
+ * 2. Uncommitted changes (staged + unstaged): `git diff HEAD` + `git apply`
+ * 3. Untracked files: `git ls-files --others` + `copyOut` each file
  */
 
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { IsolatedSandboxHandle } from "./SandboxProvider.js";
 import { execHost, execOk } from "./sandboxExec.js";
 
@@ -42,64 +41,93 @@ export const syncOut = async (
 ): Promise<void> => {
   const workspacePath = handle.workspacePath;
 
-  // Get the host HEAD — this is the base commit that was synced in
   const hostHead = (await execHost("git rev-parse HEAD", hostRepoDir)).trim();
-
-  // Get the sandbox HEAD
   const sandboxHead = (
     await execOk(handle, "git rev-parse HEAD", { cwd: workspacePath })
   ).stdout.trim();
 
-  // No new commits — nothing to sync
-  if (hostHead === sandboxHead) return;
+  // --- Prong 1: Committed changes via format-patch ---
+  if (hostHead !== sandboxHead) {
+    const mkTempResult = await execOk(
+      handle,
+      "mktemp -d -t sandcastle-patches-XXXXXX",
+    );
+    const sandboxPatchDir = mkTempResult.stdout.trim();
 
-  // Generate patches inside the sandbox
-  const mkTempResult = await execOk(
-    handle,
-    "mktemp -d -t sandcastle-patches-XXXXXX",
-  );
-  const sandboxPatchDir = mkTempResult.stdout.trim();
+    await execOk(
+      handle,
+      `git format-patch "${hostHead}..HEAD" -o "${sandboxPatchDir}"`,
+      { cwd: workspacePath },
+    );
 
-  await execOk(
-    handle,
-    `git format-patch "${hostHead}..HEAD" -o "${sandboxPatchDir}"`,
-    { cwd: workspacePath },
-  );
+    const lsResult = await execOk(handle, `ls -1 "${sandboxPatchDir}"`);
+    const patchNames = lsResult.stdout
+      .trim()
+      .split("\n")
+      .filter((name) => name.length > 0);
 
-  // List generated patch files (sorted by name — git format-patch numbers them)
-  const lsResult = await execOk(handle, `ls -1 "${sandboxPatchDir}"`);
-  const patchNames = lsResult.stdout
-    .trim()
-    .split("\n")
-    .filter((name) => name.length > 0);
+    if (patchNames.length > 0) {
+      const hostPatchDir = await mkdtemp(join(tmpdir(), "sandcastle-patches-"));
+      try {
+        const nonEmptyPatches: string[] = [];
 
-  if (patchNames.length === 0) return;
+        for (const patchName of patchNames) {
+          const sandboxPatchPath = `${sandboxPatchDir}/${patchName}`;
+          const hostPatchPath = join(hostPatchDir, patchName);
+          await handle.copyOut(sandboxPatchPath, hostPatchPath);
 
-  // Copy patches to host and filter out empty ones
-  const hostPatchDir = await mkdtemp(join(tmpdir(), "sandcastle-patches-"));
-  try {
-    const nonEmptyPatches: string[] = [];
+          if (!(await isEmptyPatch(hostPatchPath))) {
+            nonEmptyPatches.push(hostPatchPath);
+          }
+        }
 
-    for (const patchName of patchNames) {
-      const sandboxPatchPath = `${sandboxPatchDir}/${patchName}`;
-      const hostPatchPath = join(hostPatchDir, patchName);
-
-      await handle.copyOut(sandboxPatchPath, hostPatchPath);
-
-      if (!(await isEmptyPatch(hostPatchPath))) {
-        nonEmptyPatches.push(hostPatchPath);
+        if (nonEmptyPatches.length > 0) {
+          const patchArgs = nonEmptyPatches.map((p) => `"${p}"`).join(" ");
+          await execHost(`git am --3way ${patchArgs}`, hostRepoDir);
+        }
+      } finally {
+        await rm(hostPatchDir, { recursive: true, force: true });
+        await handle.exec(`rm -rf "${sandboxPatchDir}"`);
       }
     }
+  }
 
-    // Apply non-empty patches on host
-    if (nonEmptyPatches.length > 0) {
-      const patchArgs = nonEmptyPatches.map((p) => `"${p}"`).join(" ");
-      await execHost(`git am --3way ${patchArgs}`, hostRepoDir);
+  // --- Prong 2: Uncommitted changes (staged + unstaged) via git diff ---
+  const diffResult = await handle.exec("git diff HEAD", { cwd: workspacePath });
+  if (diffResult.exitCode === 0 && diffResult.stdout.trim().length > 0) {
+    const hostDiffDir = await mkdtemp(join(tmpdir(), "sandcastle-diff-"));
+    const hostDiffPath = join(hostDiffDir, "uncommitted.patch");
+    try {
+      // Write the diff to a file in the sandbox, then copyOut
+      const sandboxDiffPath = "/tmp/sandcastle-uncommitted.patch";
+      await execOk(handle, `git diff HEAD > "${sandboxDiffPath}"`, {
+        cwd: workspacePath,
+      });
+      await handle.copyOut(sandboxDiffPath, hostDiffPath);
+      await handle.exec(`rm -f "${sandboxDiffPath}"`);
+
+      await execHost(`git apply "${hostDiffPath}"`, hostRepoDir);
+    } finally {
+      await rm(hostDiffDir, { recursive: true, force: true });
     }
-  } finally {
-    // Clean up host-side patch temp dir
-    await rm(hostPatchDir, { recursive: true, force: true });
-    // Clean up sandbox-side patch temp dir
-    await handle.exec(`rm -rf "${sandboxPatchDir}"`);
+  }
+
+  // --- Prong 3: Untracked files via git ls-files ---
+  const lsFilesResult = await handle.exec(
+    "git ls-files --others --exclude-standard",
+    { cwd: workspacePath },
+  );
+  if (lsFilesResult.exitCode === 0 && lsFilesResult.stdout.trim().length > 0) {
+    const untrackedFiles = lsFilesResult.stdout
+      .trim()
+      .split("\n")
+      .filter((f) => f.length > 0);
+
+    for (const relPath of untrackedFiles) {
+      const sandboxFilePath = `${workspacePath}/${relPath}`;
+      const hostFilePath = join(hostRepoDir, relPath);
+      await mkdir(dirname(hostFilePath), { recursive: true });
+      await handle.copyOut(sandboxFilePath, hostFilePath);
+    }
   }
 };
