@@ -12,7 +12,6 @@ import { Writable } from "node:stream";
 import {
   createIsolatedSandboxProvider,
   type ExecResult,
-  type IsolatedBranchStrategy,
   type IsolatedSandboxHandle,
   type IsolatedSandboxProvider,
 } from "../SandboxProvider.js";
@@ -35,11 +34,6 @@ export interface VercelOptions {
    * `VERCEL_TOKEN` from the environment.
    */
   readonly token?: string;
-
-  /**
-   * Branch strategy for this provider. Defaults to `{ type: "merge-to-head" }`.
-   */
-  readonly branchStrategy?: IsolatedBranchStrategy;
 
   // ---- Pass-through @vercel/sandbox Sandbox.create() options ----
 
@@ -124,7 +118,6 @@ export interface VercelOptions {
 export const vercel = (options?: VercelOptions): IsolatedSandboxProvider =>
   createIsolatedSandboxProvider({
     name: "vercel",
-    branchStrategy: options?.branchStrategy,
     create: async (createOptions): Promise<IsolatedSandboxHandle> => {
       // Dynamic import so the peer dependency is only loaded at runtime
       const { Sandbox } = await import("@vercel/sandbox");

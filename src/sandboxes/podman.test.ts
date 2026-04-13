@@ -19,24 +19,6 @@ describe("podman()", () => {
     expect(typeof provider.create).toBe("function");
   });
 
-  it("defaults branchStrategy to head", () => {
-    const provider = podman();
-    expect(provider.tag).toBe("bind-mount");
-    if (provider.tag === "bind-mount") {
-      expect(provider.branchStrategy).toEqual({ type: "head" });
-    }
-  });
-
-  it("accepts and threads through branchStrategy", () => {
-    const provider = podman({
-      branchStrategy: { type: "merge-to-head" },
-    });
-    expect(provider.tag).toBe("bind-mount");
-    if (provider.tag === "bind-mount") {
-      expect(provider.branchStrategy).toEqual({ type: "merge-to-head" });
-    }
-  });
-
   it("accepts selinuxLabel option", () => {
     // Just verify construction succeeds with each option
     const withZ = podman({ selinuxLabel: "z" });

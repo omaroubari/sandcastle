@@ -13,21 +13,6 @@ describe("vercel()", () => {
     expect(typeof provider.create).toBe("function");
   });
 
-  it("defaults branchStrategy to merge-to-head", () => {
-    const provider = vercel();
-    expect(provider.branchStrategy).toEqual({ type: "merge-to-head" });
-  });
-
-  it("accepts and threads through branchStrategy", () => {
-    const provider = vercel({
-      branchStrategy: { type: "branch", branch: "my-branch" },
-    });
-    expect(provider.branchStrategy).toEqual({
-      type: "branch",
-      branch: "my-branch",
-    });
-  });
-
   it("accepts a token option", () => {
     // Should not throw
     const provider = vercel({ token: "my-token" });

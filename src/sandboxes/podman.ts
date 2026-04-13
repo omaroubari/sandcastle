@@ -11,7 +11,6 @@ import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
 import {
   createBindMountSandboxProvider,
-  type BindMountBranchStrategy,
   type SandboxProvider,
   type BindMountCreateOptions,
   type BindMountSandboxHandle,
@@ -21,8 +20,6 @@ import {
 export interface PodmanOptions {
   /** Podman image name (default: derived from repo directory name). */
   readonly imageName?: string;
-  /** Branch strategy for this provider. Defaults to { type: "head" }. */
-  readonly branchStrategy?: BindMountBranchStrategy;
   /**
    * SELinux volume label suffix applied to bind mounts.
    *
@@ -47,7 +44,6 @@ export const podman = (options?: PodmanOptions): SandboxProvider => {
 
   return createBindMountSandboxProvider({
     name: "podman",
-    branchStrategy: options?.branchStrategy,
     create: async (
       createOptions: BindMountCreateOptions,
     ): Promise<BindMountSandboxHandle> => {
