@@ -210,7 +210,8 @@ export function getNextStepsLines(
       `2. Add "sandcastle": "npx tsx .sandcastle/${mainFilename}" to your package.json scripts`,
       '3. Templates use `copyToSandbox: ["node_modules"]` to copy your host node_modules into the sandbox for fast startup — the `npm install` in the onSandboxReady hook is a safety net for platform-specific binaries. Adjust both if you use a different package manager',
       "4. Read and customize the prompt files in .sandcastle/ — they shape what the agent does",
-      "5. Run `npm run sandcastle` to start the agent",
+      "5. Customize .sandcastle/CODING_STANDARDS.md with your project's standards — the reviewer agent loads it during review",
+      "6. Run `npm run sandcastle` to start the agent",
     ];
   }
 }

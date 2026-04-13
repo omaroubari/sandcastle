@@ -408,6 +408,30 @@ describe("InitService scaffold", () => {
         true,
       );
     });
+
+    it("scaffolds CODING_STANDARDS.md with minimal starter content", async () => {
+      const dir = await makeDir();
+      await runScaffold(dir, { templateName: "sequential-reviewer" });
+
+      const standards = await readFile(
+        join(dir, ".sandcastle", "CODING_STANDARDS.md"),
+        "utf-8",
+      );
+      expect(standards).toContain("# Coding Standards");
+      // Should have guiding comment, not opinionated defaults
+      expect(standards).toContain("Customize");
+    });
+
+    it("review-prompt.md references @.sandcastle/CODING_STANDARDS.md", async () => {
+      const dir = await makeDir();
+      await runScaffold(dir, { templateName: "sequential-reviewer" });
+
+      const prompt = await readFile(
+        join(dir, ".sandcastle", "review-prompt.md"),
+        "utf-8",
+      );
+      expect(prompt).toContain("@.sandcastle/CODING_STANDARDS.md");
+    });
   });
 
   it("simple-loop template does not scaffold compiled .js or .d.ts files", async () => {
@@ -502,6 +526,18 @@ describe("InitService scaffold", () => {
       const joined = lines.join("\n");
       expect(joined).toContain("main.ts");
       expect(joined).not.toContain("main.mts");
+    });
+
+    it("non-blank template mentions CODING_STANDARDS.md customization", () => {
+      const lines = getNextStepsLines("sequential-reviewer", "main.mts");
+      const joined = lines.join("\n");
+      expect(joined).toContain("CODING_STANDARDS.md");
+    });
+
+    it("blank template does not mention CODING_STANDARDS.md", () => {
+      const lines = getNextStepsLines("blank", "main.mts");
+      const joined = lines.join("\n");
+      expect(joined).not.toContain("CODING_STANDARDS.md");
     });
   });
 
@@ -846,6 +882,29 @@ describe("InitService scaffold", () => {
         "utf-8",
       );
       expect(mainTs).toContain("claude-opus-4-6");
+    });
+
+    it("scaffolds CODING_STANDARDS.md with minimal starter content", async () => {
+      const dir = await makeDir();
+      await runScaffold(dir, { templateName: "parallel-planner-with-review" });
+
+      const standards = await readFile(
+        join(dir, ".sandcastle", "CODING_STANDARDS.md"),
+        "utf-8",
+      );
+      expect(standards).toContain("# Coding Standards");
+      expect(standards).toContain("Customize");
+    });
+
+    it("review-prompt.md references @.sandcastle/CODING_STANDARDS.md", async () => {
+      const dir = await makeDir();
+      await runScaffold(dir, { templateName: "parallel-planner-with-review" });
+
+      const prompt = await readFile(
+        join(dir, ".sandcastle", "review-prompt.md"),
+        "utf-8",
+      );
+      expect(prompt).toContain("@.sandcastle/CODING_STANDARDS.md");
     });
   });
 
