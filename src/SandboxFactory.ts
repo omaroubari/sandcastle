@@ -163,6 +163,8 @@ export class SandboxConfig extends Context.Tag("SandboxConfig")<
     readonly sandboxProvider: SandboxProvider;
     /** Branch strategy — controls how the agent's changes relate to branches. */
     readonly branchStrategy: BranchStrategy;
+    /** When false, reuse an existing worktree instead of failing on collision. Default: true. */
+    readonly throwOnDuplicateWorktree?: boolean;
   }
 >() {}
 
@@ -334,6 +336,7 @@ export const WorktreeDockerSandboxFactory = {
         name,
         sandboxProvider,
         branchStrategy,
+        throwOnDuplicateWorktree,
       } = yield* SandboxConfig;
 
       const isHeadMode = branchStrategy.type === "head";
@@ -452,7 +455,10 @@ export const WorktreeDockerSandboxFactory = {
               .pipe(
                 Effect.andThen(
                   branch
-                    ? WorktreeManager.create(hostRepoDir, { branch })
+                    ? WorktreeManager.create(hostRepoDir, {
+                        branch,
+                        throwOnDuplicateWorktree,
+                      })
                     : WorktreeManager.create(hostRepoDir, { name }),
                 ),
               )

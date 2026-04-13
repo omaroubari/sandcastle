@@ -219,12 +219,13 @@ if (closeResult.preservedWorktreePath) {
 
 #### `CreateSandboxOptions`
 
-| Option          | Type            | Default | Description                                                        |
-| --------------- | --------------- | ------- | ------------------------------------------------------------------ |
-| `branch`        | string          | —       | **Required.** Explicit branch for the sandbox                      |
-| `sandbox`       | SandboxProvider | —       | **Required.** Sandbox provider (e.g. `docker()`, `podman()`)       |
-| `hooks`         | object          | —       | Lifecycle hooks (`onSandboxReady`) — run once at creation time     |
-| `copyToSandbox` | string[]        | —       | Host-relative file paths to copy into the sandbox at creation time |
+| Option                     | Type            | Default | Description                                                              |
+| -------------------------- | --------------- | ------- | ------------------------------------------------------------------------ |
+| `branch`                   | string          | —       | **Required.** Explicit branch for the sandbox                            |
+| `sandbox`                  | SandboxProvider | —       | **Required.** Sandbox provider (e.g. `docker()`, `podman()`)             |
+| `hooks`                    | object          | —       | Lifecycle hooks (`onSandboxReady`) — run once at creation time           |
+| `copyToSandbox`            | string[]        | —       | Host-relative file paths to copy into the sandbox at creation time       |
+| `throwOnDuplicateWorktree` | boolean         | `true`  | When `false`, reuse an existing worktree instead of failing on collision |
 
 #### `Sandbox`
 
@@ -436,21 +437,22 @@ Removes the Docker image.
 
 ### `RunOptions`
 
-| Option               | Type               | Default                       | Description                                                                                                             |
-| -------------------- | ------------------ | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `agent`              | AgentProvider      | —                             | **Required.** Agent provider (e.g. `claudeCode("claude-opus-4-6")`, `pi("claude-sonnet-4-6")`, `codex("gpt-5.4-mini")`) |
-| `sandbox`            | SandboxProvider    | —                             | **Required.** Sandbox provider (e.g. `docker()`, `podman()`, `docker({ imageName: "sandcastle:local" })`)               |
-| `prompt`             | string             | —                             | Inline prompt (mutually exclusive with `promptFile`)                                                                    |
-| `promptFile`         | string             | —                             | Path to prompt file (mutually exclusive with `prompt`)                                                                  |
-| `maxIterations`      | number             | `1`                           | Maximum iterations to run                                                                                               |
-| `hooks`              | object             | —                             | Lifecycle hooks (`onSandboxReady`)                                                                                      |
-| `name`               | string             | —                             | Display name for the run, shown as a prefix in log output                                                               |
-| `promptArgs`         | PromptArgs         | —                             | Key-value map for `{{KEY}}` placeholder substitution                                                                    |
-| `branchStrategy`     | BranchStrategy     | per-provider default          | Branch strategy: `{ type: 'head' }`, `{ type: 'merge-to-head' }`, or `{ type: 'branch', branch: '…' }`                  |
-| `copyToSandbox`      | string[]           | —                             | Host-relative file paths to copy into the sandbox before start (not supported with `branchStrategy: { type: 'head' }`)  |
-| `logging`            | object             | file (auto-generated)         | `{ type: 'file', path }` or `{ type: 'stdout' }`                                                                        |
-| `completionSignal`   | string \| string[] | `<promise>COMPLETE</promise>` | String or array of strings the agent emits to stop the iteration loop early                                             |
-| `idleTimeoutSeconds` | number             | `600`                         | Idle timeout in seconds — resets on each agent output event                                                             |
+| Option                     | Type               | Default                       | Description                                                                                                             |
+| -------------------------- | ------------------ | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `agent`                    | AgentProvider      | —                             | **Required.** Agent provider (e.g. `claudeCode("claude-opus-4-6")`, `pi("claude-sonnet-4-6")`, `codex("gpt-5.4-mini")`) |
+| `sandbox`                  | SandboxProvider    | —                             | **Required.** Sandbox provider (e.g. `docker()`, `podman()`, `docker({ imageName: "sandcastle:local" })`)               |
+| `prompt`                   | string             | —                             | Inline prompt (mutually exclusive with `promptFile`)                                                                    |
+| `promptFile`               | string             | —                             | Path to prompt file (mutually exclusive with `prompt`)                                                                  |
+| `maxIterations`            | number             | `1`                           | Maximum iterations to run                                                                                               |
+| `hooks`                    | object             | —                             | Lifecycle hooks (`onSandboxReady`)                                                                                      |
+| `name`                     | string             | —                             | Display name for the run, shown as a prefix in log output                                                               |
+| `promptArgs`               | PromptArgs         | —                             | Key-value map for `{{KEY}}` placeholder substitution                                                                    |
+| `branchStrategy`           | BranchStrategy     | per-provider default          | Branch strategy: `{ type: 'head' }`, `{ type: 'merge-to-head' }`, or `{ type: 'branch', branch: '…' }`                  |
+| `copyToSandbox`            | string[]           | —                             | Host-relative file paths to copy into the sandbox before start (not supported with `branchStrategy: { type: 'head' }`)  |
+| `logging`                  | object             | file (auto-generated)         | `{ type: 'file', path }` or `{ type: 'stdout' }`                                                                        |
+| `completionSignal`         | string \| string[] | `<promise>COMPLETE</promise>` | String or array of strings the agent emits to stop the iteration loop early                                             |
+| `idleTimeoutSeconds`       | number             | `600`                         | Idle timeout in seconds — resets on each agent output event                                                             |
+| `throwOnDuplicateWorktree` | boolean            | `true`                        | When `false`, reuse an existing worktree for the target branch instead of failing on collision                          |
 
 ### `RunResult`
 

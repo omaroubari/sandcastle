@@ -109,7 +109,12 @@ const listWorktrees = (
  */
 export const create = (
   repoDir: string,
-  opts?: { branch?: string; name?: string },
+  opts?: {
+    branch?: string;
+    name?: string;
+    /** When false, reuse an existing worktree instead of failing on collision. Default: true. */
+    throwOnDuplicateWorktree?: boolean;
+  },
 ): Effect.Effect<WorktreeInfo, WorktreeError, FileSystem.FileSystem> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -143,6 +148,9 @@ export const create = (
       const existing = yield* listWorktrees(repoDir);
       const collision = existing.find((wt) => wt.branch === branch);
       if (collision) {
+        if (opts.throwOnDuplicateWorktree === false) {
+          return { path: collision.path, branch };
+        }
         yield* Effect.fail(
           new WorktreeError({
             message:

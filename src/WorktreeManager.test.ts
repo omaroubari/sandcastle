@@ -250,6 +250,44 @@ describe("WorktreeManager.create", () => {
     await run(remove(path));
   });
 
+  it("returns existing worktree when throwOnDuplicateWorktree is false", async () => {
+    const repoDir = await setupRepo();
+    await execAsync("git checkout -b my-branch", { cwd: repoDir });
+    await commitFile(repoDir, "x.txt", "x", "branch commit");
+    await execAsync("git checkout main", { cwd: repoDir });
+
+    const first = await run(create(repoDir, { branch: "my-branch" }));
+
+    const second = await run(
+      create(repoDir, {
+        branch: "my-branch",
+        throwOnDuplicateWorktree: false,
+      }),
+    );
+
+    expect(second.path).toBe(first.path);
+    expect(second.branch).toBe("my-branch");
+
+    await run(remove(first.path));
+  });
+
+  it("still fails on collision when throwOnDuplicateWorktree is true", async () => {
+    const repoDir = await setupRepo();
+    await execAsync("git checkout -b my-branch", { cwd: repoDir });
+    await commitFile(repoDir, "x.txt", "x", "branch commit");
+    await execAsync("git checkout main", { cwd: repoDir });
+
+    await run(create(repoDir, { branch: "my-branch" }));
+
+    const err = await runFail(
+      create(repoDir, {
+        branch: "my-branch",
+        throwOnDuplicateWorktree: true,
+      }),
+    );
+    expect(err.message).toMatch(/already checked out/i);
+  });
+
   it("detects collision when branch is checked out in the main working tree", async () => {
     const repoDir = await setupRepo();
     // "main" is the currently checked-out branch in the main working tree
