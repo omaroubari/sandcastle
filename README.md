@@ -90,11 +90,14 @@ const result = await run({
   agent: claudeCode("claude-opus-4-6", { effort: "high" }),
 
   // Sandbox provider — required. Import from "@ai-hero/sandcastle/sandboxes/docker".
-  // Provider-specific config (like imageName and branchStrategy) lives inside the provider factory call.
+  // Provider-specific config (like imageName) lives inside the provider factory call.
   sandbox: docker({
     imageName: "sandcastle:local",
-    branchStrategy: { type: "branch", branch: "agent/fix-42" },
   }),
+
+  // Branch strategy — controls how the agent's changes relate to branches.
+  // Defaults to { type: "head" } for bind-mount and { type: "merge-to-head" } for isolated providers.
+  branchStrategy: { type: "branch", branch: "agent/fix-42" },
 
   // Prompt source — provide one of these, not both:
   promptFile: ".sandcastle/prompt.md", // path to a prompt file
@@ -269,7 +272,7 @@ Sandcastle uses a **branch strategy** configured on the sandbox provider to cont
 
 For bind-mount providers (like Docker), the worktree directory is bind-mounted into the container — the agent writes directly to the host filesystem through the mount, so no sync is needed.
 
-From your point of view, you just configure `docker({ branchStrategy: { type: 'branch', branch: 'foo' } })`, and get a commit on branch `foo` once it's complete. All 100% local.
+From your point of view, you just configure `branchStrategy: { type: 'branch', branch: 'foo' }` on `run()`, and get a commit on branch `foo` once it's complete. All 100% local.
 
 ## Prompts
 
@@ -439,6 +442,7 @@ Removes the Docker image.
 | `hooks`              | object             | —                             | Lifecycle hooks (`onSandboxReady`)                                                                                      |
 | `name`               | string             | —                             | Display name for the run, shown as a prefix in log output                                                               |
 | `promptArgs`         | PromptArgs         | —                             | Key-value map for `{{KEY}}` placeholder substitution                                                                    |
+| `branchStrategy`     | BranchStrategy     | per-provider default          | Branch strategy: `{ type: 'head' }`, `{ type: 'merge-to-head' }`, or `{ type: 'branch', branch: '…' }`                  |
 | `copyToSandbox`      | string[]           | —                             | Host-relative file paths to copy into the sandbox before start (not supported with `branchStrategy: { type: 'head' }`)  |
 | `logging`            | object             | file (auto-generated)         | `{ type: 'file', path }` or `{ type: 'stdout' }`                                                                        |
 | `completionSignal`   | string \| string[] | `<promise>COMPLETE</promise>` | String or array of strings the agent emits to stop the iteration loop early                                             |
@@ -518,7 +522,6 @@ import { createInterface } from "node:readline";
 const localProcess = () =>
   createBindMountSandboxProvider({
     name: "local-process",
-    branchStrategy: { type: "merge-to-head" },
     create: async (
       options: BindMountCreateOptions,
     ): Promise<BindMountSandboxHandle> => {
@@ -608,7 +611,6 @@ import { createInterface } from "node:readline";
 const tempDir = () =>
   createIsolatedSandboxProvider({
     name: "temp-dir",
-    branchStrategy: { type: "merge-to-head" },
     create: async (): Promise<IsolatedSandboxHandle> => {
       const root = await mkdtemp(join(tmpdir(), "sandbox-"));
       const workspacePath = join(root, "workspace");
@@ -705,15 +707,30 @@ A branch strategy controls where the agent's commits land. Configure it when con
 - **`merge-to-head`** — safe default for automation. The agent works on a throwaway branch; if something goes wrong, HEAD is untouched. Use this for CI or unattended runs.
 - **`branch`** — when you want commits on a specific branch (e.g. for a PR). Pass `{ type: "branch", branch: "agent/fix-42" }`.
 
+Branch strategy is now configured on `run()`, not on the provider:
+
 ```typescript
-// head — direct write, bind-mount only
-const provider = localProcess();
-// merge-to-head — temp branch, merge back (default for isolated)
-const provider = tempDir();
-// branch — explicit named branch
+import { run, claudeCode } from "@ai-hero/sandcastle";
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
-const provider = docker({
+
+// head — direct write, bind-mount only (default for bind-mount providers)
+await run({
+  agent: claudeCode("claude-opus-4-6"),
+  sandbox: docker(),
+  prompt: "…",
+});
+// merge-to-head — temp branch, merge back (default for isolated providers)
+await run({
+  agent: claudeCode("claude-opus-4-6"),
+  sandbox: tempDir(),
+  prompt: "…",
+});
+// branch — explicit named branch
+await run({
+  agent: claudeCode("claude-opus-4-6"),
+  sandbox: docker(),
   branchStrategy: { type: "branch", branch: "agent/fix-42" },
+  prompt: "…",
 });
 ```
 

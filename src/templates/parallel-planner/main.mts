@@ -107,8 +107,9 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
       sandcastle.run({
         hooks,
         copyToSandbox,
-        // Each agent starts on its own branch via the provider's branchStrategy.
-        sandbox: docker({ branchStrategy: { type: "branch", branch: issue.branch } }),
+        // Each agent starts on its own branch via branchStrategy on run().
+        sandbox: docker(),
+        branchStrategy: { type: "branch", branch: issue.branch },
         name: "implementer",
         // Give each agent plenty of room to implement and iterate on tests.
         maxIterations: 100,

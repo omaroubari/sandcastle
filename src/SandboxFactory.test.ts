@@ -12,7 +12,7 @@ import {
   createBindMountSandboxProvider,
   type SandboxProvider,
   type BindMountSandboxHandle,
-  type BindMountBranchStrategy,
+  type BranchStrategy,
 } from "./SandboxProvider.js";
 import { testIsolated } from "./sandboxes/test-isolated.js";
 
@@ -40,9 +40,7 @@ const mockHasUncommittedChanges = vi.mocked(
 );
 
 /** Create a mock sandbox provider that records calls and delegates to a no-op handle. */
-const makeMockProvider = (
-  branchStrategy?: BindMountBranchStrategy,
-): {
+const makeMockProvider = (): {
   provider: SandboxProvider;
   createCalls: any[];
   closeCalls: number;
@@ -51,7 +49,6 @@ const makeMockProvider = (
   let closeCalls = 0;
   const provider = createBindMountSandboxProvider({
     name: "test-provider",
-    branchStrategy,
     create: async (options) => {
       createCalls.push(options);
       const handle: BindMountSandboxHandle = {
@@ -94,6 +91,7 @@ describe("WorktreeDockerSandboxFactory", () => {
 
   const makeLayer = (
     displayRef = Ref.unsafeMake<ReadonlyArray<DisplayEntry>>([]),
+    branchStrategy: BranchStrategy = { type: "merge-to-head" },
   ) =>
     Layer.provide(
       WorktreeDockerSandboxFactory.layer,
@@ -102,6 +100,7 @@ describe("WorktreeDockerSandboxFactory", () => {
           env: { FOO: "bar" },
           hostRepoDir,
           sandboxProvider: mockProvider.provider,
+          branchStrategy,
         }),
         NodeFileSystem.layer,
         SilentDisplay.layer(displayRef),
@@ -110,7 +109,7 @@ describe("WorktreeDockerSandboxFactory", () => {
 
   beforeEach(async () => {
     hostRepoDir = await makeTempRepo();
-    mockProvider = makeMockProvider({ type: "merge-to-head" });
+    mockProvider = makeMockProvider();
     mockCreate.mockReturnValue(
       Effect.succeed({
         path: worktreePath,
@@ -130,23 +129,10 @@ describe("WorktreeDockerSandboxFactory", () => {
     tempDirs.length = 0;
   });
 
-  it("passes branch from provider's branchStrategy to WorktreeManager.create when branch is specified", async () => {
-    const branchProvider = createBindMountSandboxProvider({
-      name: "test-provider",
-      branchStrategy: { type: "branch", branch: "feature/my-branch" },
-      create: mockProvider.provider.create,
-    });
-    const layerWithBranch = Layer.provide(
-      WorktreeDockerSandboxFactory.layer,
-      Layer.mergeAll(
-        Layer.succeed(SandboxConfig, {
-          env: {},
-          hostRepoDir,
-          sandboxProvider: branchProvider,
-        }),
-        NodeFileSystem.layer,
-        SilentDisplay.layer(Ref.unsafeMake<ReadonlyArray<DisplayEntry>>([])),
-      ),
+  it("passes branch from branchStrategy config to WorktreeManager.create when branch is specified", async () => {
+    const layerWithBranch = makeLayer(
+      Ref.unsafeMake<ReadonlyArray<DisplayEntry>>([]),
+      { type: "branch", branch: "feature/my-branch" },
     );
 
     await Effect.runPromise(
@@ -182,7 +168,7 @@ describe("WorktreeDockerSandboxFactory", () => {
         return { path: worktreePath, branch: "sandcastle/20240101-000000" };
       }),
     );
-    const { provider } = makeMockProvider({ type: "merge-to-head" });
+    const { provider } = makeMockProvider();
     const origCreate = provider.create;
     (provider as any).create = async (opts: any) => {
       callOrder.push("provider-create");
@@ -196,6 +182,7 @@ describe("WorktreeDockerSandboxFactory", () => {
           env: { FOO: "bar" },
           hostRepoDir,
           sandboxProvider: provider,
+          branchStrategy: { type: "merge-to-head" },
         }),
         NodeFileSystem.layer,
         SilentDisplay.layer(Ref.unsafeMake<ReadonlyArray<DisplayEntry>>([])),
@@ -389,6 +376,7 @@ describe("WorktreeDockerSandboxFactory", () => {
           hostRepoDir,
           copyToSandbox: ["node_modules"],
           sandboxProvider: mockProvider.provider,
+          branchStrategy: { type: "merge-to-head" },
         }),
         NodeFileSystem.layer,
         SilentDisplay.layer(ref),
@@ -522,28 +510,9 @@ describe("WorktreeDockerSandboxFactory", () => {
   });
 
   describe("head branch strategy", () => {
-    const makeHeadProvider = () =>
-      createBindMountSandboxProvider({
-        name: "test-provider",
-        branchStrategy: { type: "head" },
-        create: mockProvider.provider.create,
-      });
-
     const makeHeadLayer = (
       displayRef = Ref.unsafeMake<ReadonlyArray<DisplayEntry>>([]),
-    ) =>
-      Layer.provide(
-        WorktreeDockerSandboxFactory.layer,
-        Layer.mergeAll(
-          Layer.succeed(SandboxConfig, {
-            env: { FOO: "bar" },
-            hostRepoDir,
-            sandboxProvider: makeHeadProvider(),
-          }),
-          NodeFileSystem.layer,
-          SilentDisplay.layer(displayRef),
-        ),
-      );
+    ) => makeLayer(displayRef, { type: "head" });
 
     it("does not create or remove a worktree", async () => {
       await Effect.runPromise(
@@ -652,6 +621,7 @@ describe("WorktreeDockerSandboxFactory — isolated providers", () => {
           hostRepoDir,
           copyToSandbox,
           sandboxProvider: testIsolated(),
+          branchStrategy: { type: "merge-to-head" },
         }),
         NodeFileSystem.layer,
         SilentDisplay.layer(Ref.unsafeMake<ReadonlyArray<DisplayEntry>>([])),
@@ -758,18 +728,8 @@ describe("WorktreeDockerSandboxFactory — isolated providers", () => {
     );
   });
 
-  it("reads branchStrategy from isolated provider (defaults to merge-to-head)", () => {
+  it("isolated provider does not have a branchStrategy property", () => {
     const provider = testIsolated();
-    expect(provider.branchStrategy).toEqual({ type: "merge-to-head" });
-  });
-
-  it("accepts explicit branchStrategy on testIsolated()", () => {
-    const provider = testIsolated({
-      branchStrategy: { type: "branch", branch: "feature/foo" },
-    });
-    expect(provider.branchStrategy).toEqual({
-      type: "branch",
-      branch: "feature/foo",
-    });
+    expect("branchStrategy" in provider).toBe(false);
   });
 });

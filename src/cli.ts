@@ -451,6 +451,7 @@ const interactiveCommand = Command.make(
             env,
             hostRepoDir,
             sandboxProvider: docker({ imageName }),
+            branchStrategy: { type: "head" },
           }),
           NodeFileSystem.layer,
         ),

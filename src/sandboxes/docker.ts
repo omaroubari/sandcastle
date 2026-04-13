@@ -17,7 +17,6 @@ import {
 } from "../DockerLifecycle.js";
 import {
   createBindMountSandboxProvider,
-  type BindMountBranchStrategy,
   type SandboxProvider,
   type BindMountCreateOptions,
   type BindMountSandboxHandle,
@@ -27,8 +26,6 @@ import {
 export interface DockerOptions {
   /** Docker image name (default: derived from repo directory name). */
   readonly imageName?: string;
-  /** Branch strategy for this provider. Defaults to { type: "head" }. */
-  readonly branchStrategy?: BindMountBranchStrategy;
 }
 
 /**
@@ -42,7 +39,6 @@ export const docker = (options?: DockerOptions): SandboxProvider => {
 
   return createBindMountSandboxProvider({
     name: "docker",
-    branchStrategy: options?.branchStrategy,
     create: async (
       createOptions: BindMountCreateOptions,
     ): Promise<BindMountSandboxHandle> => {

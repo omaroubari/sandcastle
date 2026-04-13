@@ -16,7 +16,7 @@ import {
   SandboxConfig,
   SANDBOX_WORKSPACE_DIR,
 } from "./SandboxFactory.js";
-import type { SandboxProvider } from "./SandboxProvider.js";
+import type { SandboxProvider, BranchStrategy } from "./SandboxProvider.js";
 import { resolveEnv } from "./EnvResolver.js";
 import { generateTempBranchName, getCurrentBranch } from "./WorktreeManager.js";
 import {
@@ -157,6 +157,9 @@ export interface RunOptions {
   readonly name?: string;
   /** Paths relative to the host repo root to copy into the worktree before sandbox start. */
   readonly copyToSandbox?: string[];
+  /** Branch strategy — controls how the agent's changes relate to branches.
+   * Defaults to { type: "head" } for bind-mount providers and { type: "merge-to-head" } for isolated providers. */
+  readonly branchStrategy?: BranchStrategy;
 }
 
 export interface RunResult {
@@ -185,9 +188,20 @@ export const run = async (options: RunOptions): Promise<RunResult> => {
     agent: provider,
   } = options;
 
-  // Derive branch strategy from the sandbox provider
-  const branchStrategy = options.sandbox.branchStrategy;
+  // Derive branch strategy: explicit option > default based on provider tag
+  const branchStrategy: BranchStrategy =
+    options.branchStrategy ??
+    (options.sandbox.tag === "isolated"
+      ? { type: "merge-to-head" }
+      : { type: "head" });
   const effectiveBranchType = branchStrategy.type;
+
+  // Validate: head strategy is not supported with isolated providers
+  if (effectiveBranchType === "head" && options.sandbox.tag === "isolated") {
+    throw new Error(
+      "head branch strategy is not supported with isolated providers",
+    );
+  }
 
   // Validate: copyToSandbox is incompatible with head strategy
   if (
@@ -273,6 +287,7 @@ export const run = async (options: RunOptions): Promise<RunResult> => {
         copyToSandbox: options.copyToSandbox,
         name: options.name,
         sandboxProvider: options.sandbox,
+        branchStrategy,
       }),
       NodeFileSystem.layer,
       displayLayer,

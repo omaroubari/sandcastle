@@ -12,6 +12,7 @@ import {
 } from "./run.js";
 import { claudeCode } from "./AgentProvider.js";
 import { defaultImageName } from "./sandboxes/docker.js";
+import * as sandcastle from "./SandboxProvider.js";
 import { createBindMountSandboxProvider } from "./SandboxProvider.js";
 
 const testSandbox = createBindMountSandboxProvider({
@@ -239,13 +240,30 @@ describe("RunOptions", () => {
 
 describe("copyToSandbox with head branch strategy", () => {
   it("throws a runtime error when copyToSandbox is provided with head strategy", async () => {
-    const headSandbox = createBindMountSandboxProvider({
-      name: "test-head",
-      branchStrategy: { type: "head" },
+    await expect(
+      run({
+        agent: claudeCode("claude-opus-4-6"),
+        sandbox: testSandbox,
+        prompt: "test",
+        branchStrategy: { type: "head" },
+        copyToSandbox: [".env"],
+      }),
+    ).rejects.toThrow(
+      "copyToSandbox is not supported with head branch strategy",
+    );
+  });
+});
+
+describe("branchStrategy on RunOptions", () => {
+  it("throws when head strategy is used with an isolated provider", async () => {
+    const isolatedSandbox = sandcastle.createIsolatedSandboxProvider({
+      name: "test-isolated",
       create: async () => ({
-        workspacePath: "/home/agent/workspace",
+        workspacePath: "/workspace",
         exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
         execStreaming: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+        copyIn: async () => {},
+        copyOut: async () => {},
         close: async () => {},
       }),
     });
@@ -253,12 +271,12 @@ describe("copyToSandbox with head branch strategy", () => {
     await expect(
       run({
         agent: claudeCode("claude-opus-4-6"),
-        sandbox: headSandbox,
+        sandbox: isolatedSandbox,
         prompt: "test",
-        copyToSandbox: [".env"],
+        branchStrategy: { type: "head" },
       }),
     ).rejects.toThrow(
-      "copyToSandbox is not supported with head branch strategy",
+      "head branch strategy is not supported with isolated providers",
     );
   });
 });

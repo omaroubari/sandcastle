@@ -17,9 +17,9 @@ import { copyToSandbox } from "./CopyToSandbox.js";
 import { Display } from "./Display.js";
 import type {
   SandboxProvider,
+  BranchStrategy,
   BindMountSandboxProvider,
   BindMountSandboxHandle,
-  BindMountBranchStrategy,
   IsolatedSandboxProvider,
   IsolatedSandboxHandle,
 } from "./SandboxProvider.js";
@@ -161,6 +161,8 @@ export class SandboxConfig extends Context.Tag("SandboxConfig")<
     readonly name?: string;
     /** Sandbox provider — delegates sandbox lifecycle to the provider. */
     readonly sandboxProvider: SandboxProvider;
+    /** Branch strategy — controls how the agent's changes relate to branches. */
+    readonly branchStrategy: BranchStrategy;
   }
 >() {}
 
@@ -331,10 +333,9 @@ export const WorktreeDockerSandboxFactory = {
         copyToSandbox: copyPaths,
         name,
         sandboxProvider,
+        branchStrategy,
       } = yield* SandboxConfig;
 
-      // Read branch strategy from the provider
-      const branchStrategy = sandboxProvider.branchStrategy;
       const isHeadMode = branchStrategy.type === "head";
       const branch =
         branchStrategy.type === "branch" ? branchStrategy.branch : undefined;

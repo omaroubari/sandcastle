@@ -48,8 +48,6 @@ export interface BindMountCreateOptions {
 export interface BindMountSandboxProviderConfig {
   /** Human-readable name for this provider (e.g. "docker", "podman"). */
   readonly name: string;
-  /** Branch strategy. Defaults to { type: "head" } if omitted. */
-  readonly branchStrategy?: BindMountBranchStrategy;
   /** Create a sandbox handle from the given options. */
   readonly create: (
     options: BindMountCreateOptions,
@@ -86,8 +84,6 @@ export interface IsolatedCreateOptions {
 export interface IsolatedSandboxProviderConfig {
   /** Human-readable name for this provider (e.g. "daytona", "e2b"). */
   readonly name: string;
-  /** Branch strategy. Defaults to { type: "merge-to-head" } if omitted. */
-  readonly branchStrategy?: IsolatedBranchStrategy;
   /** Create an isolated sandbox handle from the given options. */
   readonly create: (
     options: IsolatedCreateOptions,
@@ -100,8 +96,6 @@ export interface BindMountSandboxProvider {
   readonly tag: "bind-mount";
   /** Human-readable provider name. */
   readonly name: string;
-  /** Branch strategy — controls how the agent's changes relate to branches. Defaults to head. */
-  readonly branchStrategy: BindMountBranchStrategy;
   /** @internal Create a sandbox handle. */
   readonly create: (
     options: BindMountCreateOptions,
@@ -114,8 +108,6 @@ export interface IsolatedSandboxProvider {
   readonly tag: "isolated";
   /** Human-readable provider name. */
   readonly name: string;
-  /** Branch strategy — controls how the agent's changes relate to branches. Defaults to merge-to-head. */
-  readonly branchStrategy: IsolatedBranchStrategy;
   /** @internal Create an isolated sandbox handle. */
   readonly create: (
     options: IsolatedCreateOptions,
@@ -171,7 +163,6 @@ export const createBindMountSandboxProvider = (
 ): BindMountSandboxProvider => ({
   tag: "bind-mount",
   name: config.name,
-  branchStrategy: config.branchStrategy ?? { type: "head" },
   create: config.create,
 });
 
@@ -184,6 +175,5 @@ export const createIsolatedSandboxProvider = (
 ): IsolatedSandboxProvider => ({
   tag: "isolated",
   name: config.name,
-  branchStrategy: config.branchStrategy ?? { type: "merge-to-head" },
   create: config.create,
 });
