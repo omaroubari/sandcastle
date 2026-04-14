@@ -177,29 +177,33 @@ export const createSandbox = async (
     });
 
     const provider = options.sandbox;
-    const startResult = await Effect.runPromise(
-      provider.tag === "isolated"
-        ? startSandbox({
+
+    let startEffect;
+    if (provider.tag === "isolated") {
+      startEffect = startSandbox({
+        provider,
+        hostRepoDir: worktreePath,
+        env,
+        copyPaths: options.copyToSandbox,
+      });
+    } else {
+      startEffect = resolveGitMounts(join(hostRepoDir, ".git")).pipe(
+        Effect.provide(NodeFileSystem.layer),
+        Effect.catchAll(() => Effect.succeed([])),
+        Effect.flatMap((gitMounts) =>
+          startSandbox({
             provider,
-            hostRepoDir: worktreePath,
+            hostRepoDir,
             env,
-            copyPaths: options.copyToSandbox,
-          })
-        : resolveGitMounts(join(hostRepoDir, ".git")).pipe(
-            Effect.provide(NodeFileSystem.layer),
-            Effect.catchAll(() => Effect.succeed([])),
-            Effect.flatMap((gitMounts) =>
-              startSandbox({
-                provider,
-                hostRepoDir,
-                env,
-                worktreeOrRepoPath: worktreePath,
-                gitMounts,
-                workspaceDir: SANDBOX_WORKSPACE_DIR,
-              }),
-            ),
-          ),
-    );
+            worktreeOrRepoPath: worktreePath,
+            gitMounts,
+            workspaceDir: SANDBOX_WORKSPACE_DIR,
+          }),
+        ),
+      );
+    }
+
+    const startResult = await Effect.runPromise(startEffect);
 
     providerHandle = startResult.handle;
     sandboxLayer = startResult.sandboxLayer;
@@ -227,7 +231,13 @@ export const createSandbox = async (
     );
   }
 
-  // 5. Set up signal handlers
+  // 5. Build applyToHost callback (once, reused across runs)
+  const applyToHost =
+    isIsolated && providerHandle
+      ? () => syncOut(worktreePath, providerHandle as IsolatedSandboxHandle)
+      : () => Effect.void;
+
+  // 6. Set up signal handlers
   let closed = false;
 
   const forceCleanup = () => {
@@ -244,7 +254,7 @@ export const createSandbox = async (
   process.on("SIGINT", onSignal);
   process.on("SIGTERM", onSignal);
 
-  // 6. Build close function
+  // 7. Build close function
   const doClose = async (): Promise<CloseResult> => {
     if (closed) return { preservedWorktreePath: undefined };
     closed = true;
@@ -275,7 +285,7 @@ export const createSandbox = async (
     return { preservedWorktreePath: undefined };
   };
 
-  // 7. Return the Sandbox handle
+  // 8. Return the Sandbox handle
   const sandboxHandle: Sandbox = {
     branch,
     worktreePath,
@@ -348,11 +358,6 @@ export const createSandbox = async (
           : silentDisplayLayer;
 
       // Build a SandboxFactory that reuses the existing sandbox
-      const applyToHost =
-        isIsolated && providerHandle
-          ? () => syncOut(worktreePath, providerHandle as IsolatedSandboxHandle)
-          : () => Effect.void;
-
       const reuseFactoryLayer = Layer.succeed(SandboxFactory, {
         withSandbox: (makeEffect) =>
           makeEffect({
