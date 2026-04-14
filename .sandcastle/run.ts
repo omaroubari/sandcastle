@@ -1,25 +1,8 @@
 import * as sandcastle from "@ai-hero/sandcastle";
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
-import { vercel } from "@ai-hero/sandcastle/sandboxes/vercel";
 
 const MAX_ITERATIONS = 10;
 const MAX_PARALLEL = 4;
-
-const vercelSandbox = vercel({
-  token: process.env.VERCEL_OIDC_TOKEN,
-  teamId: "matt-pococks-projects",
-  projectId: "sandcastle",
-});
-
-const claudeInstallHook = {
-  command: "curl -fsSL https://claude.ai/install.sh | bash",
-};
-
-const ghCliInstallHook = {
-  command:
-    "curl -fsSL https://cli.github.com/packages/rpm/gh-cli.repo -o /etc/yum.repos.d/gh-cli.repo && dnf install -y gh",
-  sudo: true,
-};
 
 for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   console.log(`\n=== Iteration ${iteration}/${MAX_ITERATIONS} ===\n`);
@@ -76,15 +59,12 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
       await acquire();
       try {
         await using sandbox = await sandcastle.createSandbox({
-          sandbox: vercelSandbox,
+          sandbox: docker(),
           branch: issue.branch,
+          throwOnDuplicateWorktree: false,
           copyToSandbox: ["node_modules"],
           hooks: {
-            onSandboxReady: [
-              claudeInstallHook,
-              ghCliInstallHook,
-              { command: "npm install && npm run build" },
-            ],
+            onSandboxReady: [{ command: "npm install && npm run build" }],
           },
         });
 
