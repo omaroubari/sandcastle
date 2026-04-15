@@ -44,6 +44,13 @@ export const preprocessPrompt = (
           { concurrency: "unbounded" },
         );
 
+        // Log per-command token counts
+        for (let i = 0; i < matches.length; i++) {
+          const command = matches[i]![1]!;
+          const tokens = Math.ceil(results[i]!.length / 4);
+          message(`${command} \u2192 ~${tokens} tokens`);
+        }
+
         // Replace all matches using original indices (process in reverse to preserve positions)
         let result = prompt;
         for (let i = matches.length - 1; i >= 0; i--) {
