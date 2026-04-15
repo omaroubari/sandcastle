@@ -1,11 +1,19 @@
 import { NodeContext, NodeFileSystem } from "@effect/platform-node";
 import { join } from "node:path";
-import { Effect } from "effect";
+import { Effect, Layer, Ref } from "effect";
 import type { AgentProvider } from "./AgentProvider.js";
-import { ClackDisplay, Display } from "./Display.js";
+import {
+  ClackDisplay,
+  Display,
+  FileDisplay,
+  SilentDisplay,
+  type DisplayEntry,
+} from "./Display.js";
 import { preprocessPrompt } from "./PromptPreprocessor.js";
 import { resolvePrompt } from "./PromptResolver.js";
 import {
+  Sandbox as SandboxTag,
+  SandboxFactory,
   makeSandboxLayerFromHandle,
   resolveGitMounts,
   SANDBOX_WORKSPACE_DIR,
@@ -13,6 +21,7 @@ import {
 import { withSandboxLifecycle, type SandboxHooks } from "./SandboxLifecycle.js";
 import type {
   AnySandboxProvider,
+  SandboxProvider,
   MergeToHeadBranchStrategy,
   NamedBranchStrategy,
   BindMountSandboxHandle,
@@ -21,6 +30,9 @@ import type {
 } from "./SandboxProvider.js";
 import type { CloseResult } from "./createSandbox.js";
 import type { InteractiveResult } from "./interactive.js";
+import { buildLogFilename, printFileDisplayStartup } from "./run.js";
+import type { LoggingOption } from "./run.js";
+import { orchestrate } from "./Orchestrator.js";
 import { resolveEnv } from "./EnvResolver.js";
 import { mergeProviderEnv } from "./mergeProviderEnv.js";
 import { startSandbox } from "./startSandbox.js";
@@ -70,11 +82,55 @@ export interface WorkspaceInteractiveOptions {
   readonly env?: Record<string, string>;
 }
 
+export interface WorkspaceRunOptions {
+  /** Agent provider to use (e.g. claudeCode("claude-opus-4-6")) */
+  readonly agent: AgentProvider;
+  /** Sandbox provider (e.g. docker()). Required — AFK agents should always be sandboxed. */
+  readonly sandbox: SandboxProvider;
+  /** Inline prompt string (mutually exclusive with promptFile). */
+  readonly prompt?: string;
+  /** Path to a prompt file (mutually exclusive with prompt). */
+  readonly promptFile?: string;
+  /** Key-value map for {{KEY}} placeholder substitution in prompts */
+  readonly promptArgs?: PromptArgs;
+  /** Maximum iterations to run (default: 1). */
+  readonly maxIterations?: number;
+  /** Substring(s) the agent emits to stop the iteration loop early. */
+  readonly completionSignal?: string | string[];
+  /** Idle timeout in seconds. Default: 600. */
+  readonly idleTimeoutSeconds?: number;
+  /** Optional name for the run. */
+  readonly name?: string;
+  /** Logging mode. */
+  readonly logging?: LoggingOption;
+  /** Hooks to run during sandbox lifecycle */
+  readonly hooks?: SandboxHooks;
+  /** Environment variables to inject into the sandbox. */
+  readonly env?: Record<string, string>;
+}
+
+export interface WorkspaceRunResult {
+  /** Number of iterations the agent completed during this run. */
+  readonly iterationsRun: number;
+  /** The matched completion signal string, or undefined if none fired. */
+  readonly completionSignal?: string;
+  /** Combined stdout output from all agent iterations. */
+  readonly stdout: string;
+  /** List of commits made by the agent during the run. */
+  readonly commits: { sha: string }[];
+  /** The branch name the agent worked on. */
+  readonly branch: string;
+  /** Path to the log file, if logging was drained to a file. */
+  readonly logFilePath?: string;
+}
+
 export interface Workspace {
   /** The branch the workspace is on. */
   readonly branch: string;
   /** Host path to the workspace (worktree). */
   readonly workspacePath: string;
+  /** Run an AFK agent in this workspace with a required sandbox. */
+  run(options: WorkspaceRunOptions): Promise<WorkspaceRunResult>;
   /** Run an interactive agent session in this workspace. */
   interactive(options: WorkspaceInteractiveOptions): Promise<InteractiveResult>;
   /** Clean up the workspace. Preserves worktree if dirty. */
@@ -317,9 +373,164 @@ export const createWorkspace = async (
     );
   };
 
+  const workspaceRun = async (
+    opts: WorkspaceRunOptions,
+  ): Promise<WorkspaceRunResult> => {
+    const { prompt, promptFile, hooks, agent: provider } = opts;
+    const sandboxProvider = opts.sandbox;
+    const maxIterations = opts.maxIterations ?? 1;
+
+    const inner = Effect.gen(function* () {
+      // 1. Resolve prompt
+      const rawPrompt = yield* resolvePrompt({ prompt, promptFile });
+
+      // 2. Resolve env vars
+      const resolvedEnv = yield* resolveEnv(hostRepoDir);
+      const env = mergeProviderEnv({
+        resolvedEnv,
+        agentProviderEnv: provider.env,
+        sandboxProviderEnv: sandboxProvider.env,
+      });
+      const effectiveEnv = { ...env, ...(opts.env ?? {}) };
+
+      // 3. Prompt args substitution
+      const userArgs = opts.promptArgs ?? {};
+      yield* validateNoBuiltInArgOverride(userArgs);
+      const effectiveArgs = {
+        SOURCE_BRANCH: worktreeInfo.branch,
+        TARGET_BRANCH: worktreeInfo.branch,
+        ...userArgs,
+      };
+      const builtInArgKeysSet = new Set<string>(BUILT_IN_PROMPT_ARG_KEYS);
+      const resolvedPrompt = yield* substitutePromptArgs(
+        rawPrompt,
+        effectiveArgs,
+        builtInArgKeysSet,
+      );
+
+      // 4. Start sandbox
+      let handle: BindMountSandboxHandle | IsolatedSandboxHandle;
+      let sandboxRepoDir: string;
+
+      if (sandboxProvider.tag === "isolated") {
+        const startResult = yield* startSandbox({
+          provider: sandboxProvider,
+          hostRepoDir: worktreeInfo.path,
+          env: effectiveEnv,
+        });
+        handle = startResult.handle;
+        sandboxRepoDir = startResult.workspacePath;
+      } else {
+        const gitPath = join(hostRepoDir, ".git");
+        const gitMounts = yield* resolveGitMounts(gitPath);
+        const startResult = yield* startSandbox({
+          provider: sandboxProvider,
+          hostRepoDir,
+          env: effectiveEnv,
+          worktreeOrRepoPath: worktreeInfo.path,
+          gitMounts,
+          workspaceDir: SANDBOX_WORKSPACE_DIR,
+        });
+        handle = startResult.handle;
+        sandboxRepoDir = startResult.workspacePath;
+      }
+
+      const sandboxLayer = makeSandboxLayerFromHandle(handle);
+      const applyToHost =
+        sandboxProvider.tag === "isolated"
+          ? () => syncOut(worktreeInfo.path, handle as IsolatedSandboxHandle)
+          : () => Effect.void;
+
+      // 5. Resolve logging
+      const resolvedLogging: LoggingOption = opts.logging ?? {
+        type: "file",
+        path: join(
+          hostRepoDir,
+          ".sandcastle",
+          "logs",
+          buildLogFilename(worktreeInfo.branch, undefined, opts.name),
+        ),
+      };
+
+      const runDisplayLayer =
+        resolvedLogging.type === "file"
+          ? (() => {
+              printFileDisplayStartup({
+                logPath: resolvedLogging.path,
+                agentName: opts.name,
+                branch: worktreeInfo.branch,
+              });
+              return Layer.provide(
+                FileDisplay.layer(resolvedLogging.path),
+                NodeFileSystem.layer,
+              );
+            })()
+          : ClackDisplay.layer;
+
+      // 6. Build a SandboxFactory that reuses the started sandbox
+      const reuseFactoryLayer = Layer.succeed(SandboxFactory, {
+        withSandbox: (makeEffect) =>
+          makeEffect({
+            hostWorkspacePath: worktreeInfo.path,
+            sandboxWorkspacePath: sandboxRepoDir,
+            applyToHost,
+          }).pipe(
+            Effect.provide(sandboxLayer),
+            Effect.map((value) => ({
+              value,
+              preservedWorkspacePath: undefined,
+            })),
+          ) as any,
+      });
+
+      const runLayer = Layer.merge(reuseFactoryLayer, runDisplayLayer);
+
+      // 7. Run orchestration
+      const result = yield* Effect.gen(function* () {
+        const display = yield* Display;
+        yield* display.intro(opts.name ?? "sandcastle");
+
+        return yield* orchestrate({
+          hostRepoDir,
+          iterations: maxIterations,
+          hooks,
+          prompt: resolvedPrompt,
+          branch: worktreeInfo.branch,
+          provider,
+          completionSignal: opts.completionSignal,
+          idleTimeoutSeconds: opts.idleTimeoutSeconds,
+          name: opts.name,
+        });
+      }).pipe(
+        Effect.provide(runLayer),
+        // Always close sandbox handle
+        Effect.ensuring(Effect.promise(() => handle.close().catch(() => {}))),
+      );
+
+      return {
+        iterationsRun: result.iterationsRun,
+        completionSignal: result.completionSignal,
+        stdout: result.stdout,
+        commits: result.commits,
+        branch: result.branch,
+        logFilePath:
+          resolvedLogging.type === "file" ? resolvedLogging.path : undefined,
+      } satisfies WorkspaceRunResult;
+    });
+
+    return Effect.runPromise(
+      inner.pipe(
+        Effect.provide(ClackDisplay.layer),
+        Effect.provide(NodeContext.layer),
+        Effect.provide(NodeFileSystem.layer),
+      ),
+    );
+  };
+
   return {
     branch: worktreeInfo.branch,
     workspacePath: worktreeInfo.path,
+    run: workspaceRun,
     interactive: workspaceInteractive,
     close,
     async [Symbol.asyncDispose]() {

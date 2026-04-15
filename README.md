@@ -329,9 +329,18 @@ await ws.interactive({
   agent: claudeCode("claude-opus-4-6"),
   prompt: "Explore the codebase and understand the bug.",
 });
+
+// Run an AFK agent in the workspace (sandbox is required)
+const result = await ws.run({
+  agent: claudeCode("claude-opus-4-6"),
+  sandbox: docker({ imageName: "sandcastle:myrepo" }),
+  prompt: "Fix issue #42.",
+  maxIterations: 3,
+});
+console.log(result.commits); // commits made during the run
 ```
 
-`ws.close()` checks for uncommitted changes: if the worktree is dirty, it's preserved on disk; if clean, it's removed. `await using` calls `close()` automatically. The workspace persists after `interactive()` completes, so you can hand it to another agent or inspect it.
+`ws.close()` checks for uncommitted changes: if the worktree is dirty, it's preserved on disk; if clean, it's removed. `await using` calls `close()` automatically. The workspace persists after `run()` and `interactive()` complete, so you can hand it to another agent or inspect it.
 
 #### `CreateWorkspaceOptions`
 
@@ -342,13 +351,14 @@ await ws.interactive({
 
 #### `Workspace`
 
-| Property / Method       | Type                                                                   | Description                                       |
-| ----------------------- | ---------------------------------------------------------------------- | ------------------------------------------------- |
-| `branch`                | string                                                                 | The branch the workspace is on                    |
-| `workspacePath`         | string                                                                 | Host path to the workspace                        |
-| `interactive(options)`  | `(options: WorkspaceInteractiveOptions) => Promise<InteractiveResult>` | Run an interactive agent session in the workspace |
-| `close()`               | `() => Promise<CloseResult>`                                           | Clean up the worktree (preserves if dirty)        |
-| `[Symbol.asyncDispose]` | `() => Promise<void>`                                                  | Auto cleanup via `await using`                    |
+| Property / Method       | Type                                                                   | Description                                          |
+| ----------------------- | ---------------------------------------------------------------------- | ---------------------------------------------------- |
+| `branch`                | string                                                                 | The branch the workspace is on                       |
+| `workspacePath`         | string                                                                 | Host path to the workspace                           |
+| `run(options)`          | `(options: WorkspaceRunOptions) => Promise<WorkspaceRunResult>`        | Run an AFK agent in the workspace (sandbox required) |
+| `interactive(options)`  | `(options: WorkspaceInteractiveOptions) => Promise<InteractiveResult>` | Run an interactive agent session in the workspace    |
+| `close()`               | `() => Promise<CloseResult>`                                           | Clean up the worktree (preserves if dirty)           |
+| `[Symbol.asyncDispose]` | `() => Promise<void>`                                                  | Auto cleanup via `await using`                       |
 
 #### `WorkspaceInteractiveOptions`
 
@@ -362,6 +372,34 @@ await ws.interactive({
 | `hooks`      | SandboxHooks           | —             | Hooks to run during sandbox lifecycle                |
 | `promptArgs` | PromptArgs             | —             | Key-value map for `{{KEY}}` placeholder substitution |
 | `env`        | Record<string, string> | —             | Environment variables to inject into the sandbox     |
+
+#### `WorkspaceRunOptions`
+
+| Option               | Type                   | Default | Description                                                   |
+| -------------------- | ---------------------- | ------- | ------------------------------------------------------------- |
+| `agent`              | AgentProvider          | —       | **Required.** Agent provider                                  |
+| `sandbox`            | SandboxProvider        | —       | **Required.** Sandbox provider (AFK agents must be sandboxed) |
+| `prompt`             | string                 | —       | Inline prompt (mutually exclusive with `promptFile`)          |
+| `promptFile`         | string                 | —       | Path to prompt file                                           |
+| `maxIterations`      | number                 | 1       | Maximum iterations to run                                     |
+| `completionSignal`   | string \| string[]     | —       | Substring(s) to stop the iteration loop early                 |
+| `idleTimeoutSeconds` | number                 | 600     | Idle timeout in seconds                                       |
+| `name`               | string                 | —       | Optional run name                                             |
+| `logging`            | LoggingOption          | file    | Logging mode                                                  |
+| `hooks`              | SandboxHooks           | —       | Hooks to run during sandbox lifecycle                         |
+| `promptArgs`         | PromptArgs             | —       | Key-value map for `{{KEY}}` placeholder substitution          |
+| `env`                | Record<string, string> | —       | Environment variables to inject into the sandbox              |
+
+#### `WorkspaceRunResult`
+
+| Property           | Type              | Description                                            |
+| ------------------ | ----------------- | ------------------------------------------------------ |
+| `iterationsRun`    | number            | Number of iterations the agent completed               |
+| `completionSignal` | string            | The matched completion signal, or undefined            |
+| `stdout`           | string            | Combined stdout output from all agent iterations       |
+| `commits`          | { sha: string }[] | List of commits made by the agent during the run       |
+| `branch`           | string            | The branch name the agent worked on                    |
+| `logFilePath`      | string            | Path to the log file, if logging was drained to a file |
 
 ## How it works
 

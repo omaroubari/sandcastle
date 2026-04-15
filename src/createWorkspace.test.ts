@@ -6,12 +6,16 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import { createWorkspace } from "./createWorkspace.js";
-import type { CreateWorkspaceOptions } from "./createWorkspace.js";
+import type {
+  CreateWorkspaceOptions,
+  WorkspaceRunResult,
+} from "./createWorkspace.js";
 import { claudeCode } from "./AgentProvider.js";
 import {
   createBindMountSandboxProvider,
   type BindMountSandboxHandle,
   type InteractiveExecOptions,
+  type ExecResult,
 } from "./SandboxProvider.js";
 
 const execAsync = promisify(exec);
@@ -347,5 +351,181 @@ describe("workspace.interactive()", () => {
       await ws.close();
       await rm(hostDir, { recursive: true, force: true });
     }
+  });
+});
+
+/** Format a mock agent result as stream-json lines (mimicking Claude's output) */
+const toStreamJson = (output: string): string => {
+  const lines: string[] = [];
+  lines.push(
+    JSON.stringify({
+      type: "assistant",
+      message: { content: [{ type: "text", text: output }] },
+    }),
+  );
+  lines.push(JSON.stringify({ type: "result", result: output }));
+  return lines.join("\n");
+};
+
+describe("workspace.run()", () => {
+  /**
+   * Create a test bind-mount provider that intercepts agent commands
+   * and runs a mock behavior, while passing other commands through.
+   */
+  const makeRunTestProvider = (
+    mockAgentBehavior: (cwd: string) => Promise<string> = async () =>
+      "mock output",
+  ) =>
+    createBindMountSandboxProvider({
+      name: "test-run",
+      create: async (options) => {
+        const handle: BindMountSandboxHandle = {
+          workspacePath: options.workspacePath,
+          exec: async (
+            command: string,
+            execOptions?: {
+              cwd?: string;
+              onLine?: (line: string) => void;
+              sudo?: boolean;
+            },
+          ): Promise<ExecResult> => {
+            const cwd = execOptions?.cwd ?? options.workspacePath;
+            // Intercept agent commands
+            if (command.startsWith("claude ")) {
+              const output = await mockAgentBehavior(cwd);
+              const streamOutput = toStreamJson(output);
+              if (execOptions?.onLine) {
+                for (const line of streamOutput.split("\n")) {
+                  execOptions.onLine(line);
+                }
+              }
+              return { stdout: streamOutput, stderr: "", exitCode: 0 };
+            }
+            // Pass through other commands
+            const result = execSync(command, {
+              cwd,
+              encoding: "utf-8",
+              stdio: ["pipe", "pipe", "pipe"],
+            });
+            return { stdout: result, stderr: "", exitCode: 0 };
+          },
+          close: async () => {},
+        };
+        return handle;
+      },
+    });
+
+  it("runs agent and returns WorkspaceRunResult", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "ws-run-"));
+    await initRepo(hostDir);
+    await commitFile(hostDir, "init.txt", "init", "initial commit");
+
+    const sandbox = makeRunTestProvider();
+
+    const ws = await createWorkspace({
+      branchStrategy: { type: "branch", branch: "run-test" },
+      _test: { hostRepoDir: hostDir },
+    });
+
+    try {
+      const result = await ws.run({
+        agent: claudeCode("claude-opus-4-6"),
+        sandbox,
+        prompt: "do something",
+        maxIterations: 1,
+      });
+
+      expect(result.iterationsRun).toBe(1);
+      expect(typeof result.stdout).toBe("string");
+      expect(Array.isArray(result.commits)).toBe(true);
+      expect(result.branch).toBe("run-test");
+    } finally {
+      await ws.close();
+      await rm(hostDir, { recursive: true, force: true });
+    }
+  });
+
+  it("workspace persists after run completes", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "ws-run-"));
+    await initRepo(hostDir);
+    await commitFile(hostDir, "init.txt", "init", "initial commit");
+
+    const sandbox = makeRunTestProvider(async (cwd) => {
+      execSync('echo "agent file" > agent.txt', { cwd });
+      execSync("git add agent.txt", { cwd });
+      execSync('git commit -m "agent commit"', { cwd });
+      return "done";
+    });
+
+    const ws = await createWorkspace({
+      branchStrategy: { type: "branch", branch: "persist-run-test" },
+      _test: { hostRepoDir: hostDir },
+    });
+
+    try {
+      await ws.run({
+        agent: claudeCode("claude-opus-4-6"),
+        sandbox,
+        prompt: "create a file",
+        maxIterations: 1,
+      });
+
+      // Workspace should still exist after run
+      expect(existsSync(ws.workspacePath)).toBe(true);
+      // The commit should be in the worktree
+      const log = execSync("git log --oneline -1", {
+        cwd: ws.workspacePath,
+        encoding: "utf-8",
+      });
+      expect(log).toContain("agent commit");
+    } finally {
+      await ws.close();
+      await rm(hostDir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns commits made during the run", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "ws-run-"));
+    await initRepo(hostDir);
+    await commitFile(hostDir, "init.txt", "init", "initial commit");
+
+    const sandbox = makeRunTestProvider(async (cwd) => {
+      execSync('echo "new file" > created.txt', { cwd });
+      execSync("git add created.txt", { cwd });
+      execSync('git commit -m "test commit"', { cwd });
+      return "done";
+    });
+
+    const ws = await createWorkspace({
+      branchStrategy: { type: "branch", branch: "commits-run-test" },
+      _test: { hostRepoDir: hostDir },
+    });
+
+    try {
+      const result = await ws.run({
+        agent: claudeCode("claude-opus-4-6"),
+        sandbox,
+        prompt: "create a file",
+        maxIterations: 1,
+      });
+
+      expect(result.commits.length).toBeGreaterThanOrEqual(1);
+      expect(result.commits[0]!.sha).toMatch(/^[0-9a-f]{40}$/);
+      expect(result.branch).toBe("commits-run-test");
+    } finally {
+      await ws.close();
+      await rm(hostDir, { recursive: true, force: true });
+    }
+  });
+
+  it("sandbox is required (type error if omitted)", () => {
+    // This test validates at the type level — sandbox is required in WorkspaceRunOptions
+    const _options = {
+      agent: claudeCode("claude-opus-4-6"),
+      prompt: "test",
+      // @ts-expect-error — sandbox is required
+    } satisfies Parameters<
+      Exclude<Awaited<ReturnType<typeof createWorkspace>>["run"], undefined>
+    >[0];
   });
 });
