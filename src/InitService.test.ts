@@ -1274,6 +1274,37 @@ describe("InitService scaffold", () => {
       expect(prompt).toContain("{{TASK_ID}}");
       expect(prompt).not.toContain("{{ISSUE_NUMBER}}");
     });
+
+    it("parallel-planner with github-issues produces implement-prompt with gh issue view", async () => {
+      const dir = await makeDir();
+      await runScaffold(dir, {
+        templateName: "parallel-planner",
+        backlogManager: getBacklogManager("github-issues"),
+      });
+
+      const prompt = await readFile(
+        join(dir, ".sandcastle", "implement-prompt.md"),
+        "utf-8",
+      );
+      expect(prompt).toContain("gh issue view");
+      expect(prompt).not.toContain("{{VIEW_TASK_COMMAND}}");
+    });
+
+    it("parallel-planner with beads produces implement-prompt with bd show", async () => {
+      const dir = await makeDir();
+      await runScaffold(dir, {
+        templateName: "parallel-planner",
+        backlogManager: getBacklogManager("beads"),
+      });
+
+      const prompt = await readFile(
+        join(dir, ".sandcastle", "implement-prompt.md"),
+        "utf-8",
+      );
+      expect(prompt).toContain("bd show");
+      expect(prompt).not.toContain("gh issue");
+      expect(prompt).not.toContain("{{VIEW_TASK_COMMAND}}");
+    });
   });
 
   // --- ESM extension detection ---
