@@ -43,9 +43,6 @@ const hooks = {
 // platform-specific binaries and any packages added since the last copy.
 const copyToWorkspace = ["node_modules"];
 
-// Cap the number of concurrent sandboxes to avoid resource exhaustion.
-const MAX_CONCURRENCY = 4;
-
 // ---------------------------------------------------------------------------
 // Main loop
 // ---------------------------------------------------------------------------
@@ -107,75 +104,48 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // and reviewer share the same sandbox instance per branch. The implementer
   // runs first; if it produces commits, the reviewer runs in the same sandbox.
   //
-  // A semaphore limits concurrency to MAX_CONCURRENCY sandboxes at once.
   // Promise.allSettled means one failing pipeline doesn't cancel the others.
   // -------------------------------------------------------------------------
 
-  // Simple semaphore for concurrency limiting
-  let running = 0;
-  const waiting: Array<() => void> = [];
-  const acquire = (): Promise<void> => {
-    if (running < MAX_CONCURRENCY) {
-      running++;
-      return Promise.resolve();
-    }
-    return new Promise<void>((resolve) => {
-      waiting.push(() => {
-        running++;
-        resolve();
-      });
-    });
-  };
-  const release = () => {
-    running--;
-    const next = waiting.shift();
-    if (next) next();
-  };
-
   const settled = await Promise.allSettled(
     issues.map(async (issue) => {
-      await acquire();
+      const sandbox = await sandcastle.createSandbox({
+        branch: issue.branch,
+        sandbox: docker(),
+        hooks,
+        copyToWorkspace,
+      });
+
       try {
-        const sandbox = await sandcastle.createSandbox({
-          branch: issue.branch,
-          sandbox: docker(),
-          hooks,
-          copyToWorkspace,
+        // Run the implementer
+        const implement = await sandbox.run({
+          name: "implementer",
+          maxIterations: 100,
+          agent: sandcastle.claudeCode("claude-sonnet-4-6"),
+          promptFile: "./.sandcastle/implement-prompt.md",
+          promptArgs: {
+            TASK_ID: issue.id,
+            ISSUE_TITLE: issue.title,
+            BRANCH: issue.branch,
+          },
         });
 
-        try {
-          // Run the implementer
-          const implement = await sandbox.run({
-            name: "implementer",
-            maxIterations: 100,
+        // Only review if the implementer produced commits
+        if (implement.commits.length > 0) {
+          await sandbox.run({
+            name: "reviewer",
+            maxIterations: 1,
             agent: sandcastle.claudeCode("claude-sonnet-4-6"),
-            promptFile: "./.sandcastle/implement-prompt.md",
+            promptFile: "./.sandcastle/review-prompt.md",
             promptArgs: {
-              TASK_ID: issue.id,
-              ISSUE_TITLE: issue.title,
               BRANCH: issue.branch,
             },
           });
-
-          // Only review if the implementer produced commits
-          if (implement.commits.length > 0) {
-            await sandbox.run({
-              name: "reviewer",
-              maxIterations: 1,
-              agent: sandcastle.claudeCode("claude-sonnet-4-6"),
-              promptFile: "./.sandcastle/review-prompt.md",
-              promptArgs: {
-                BRANCH: issue.branch,
-              },
-            });
-          }
-
-          return implement;
-        } finally {
-          await sandbox.close();
         }
+
+        return implement;
       } finally {
-        release();
+        await sandbox.close();
       }
     }),
   );
