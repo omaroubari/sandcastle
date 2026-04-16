@@ -56,9 +56,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // -------------------------------------------------------------------------
   const plan = await sandcastle.run({
     hooks,
-    copyToWorkspace,
     sandbox: docker(),
-    branchStrategy: { type: "merge-to-head" },
     name: "planner",
     // One iteration is enough: the planner just needs to read and reason,
     // not write code.
@@ -182,9 +180,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // -------------------------------------------------------------------------
   await sandcastle.run({
     hooks,
-    copyToWorkspace,
     sandbox: docker(),
-    branchStrategy: { type: "merge-to-head" },
     name: "merger",
     maxIterations: 1,
     // Sonnet is sufficient for merge conflict resolution.
