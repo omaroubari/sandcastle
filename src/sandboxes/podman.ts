@@ -56,6 +56,15 @@ export interface PodmanOptions {
   readonly mounts?: readonly MountConfig[];
   /** Environment variables injected by this provider. Merged at launch time with env resolver and agent provider env. */
   readonly env?: Record<string, string>;
+  /**
+   * Podman network(s) to attach the container to.
+   *
+   * - `"my-network"` → `--network my-network`
+   * - `["net1", "net2"]` → `--network net1 --network net2`
+   *
+   * When omitted, Podman's default network is used.
+   */
+  readonly network?: string | readonly string[];
 }
 
 /**
@@ -113,6 +122,12 @@ export const podman = (options?: PodmanOptions): SandboxProvider => {
       ]);
       const volumeArgs = volumeMounts.flatMap((v) => ["-v", v]);
       const usernsArgs = userns ? [`--userns=${userns}`] : [];
+      const networks = options?.network
+        ? Array.isArray(options.network)
+          ? options.network
+          : [options.network]
+        : [];
+      const networkArgs = networks.flatMap((n) => ["--network", n]);
 
       // Start container via podman run
       await new Promise<void>((resolve, reject) => {
@@ -126,6 +141,7 @@ export const podman = (options?: PodmanOptions): SandboxProvider => {
             "--user",
             `${hostUid}:${hostGid}`,
             ...usernsArgs,
+            ...networkArgs,
             "-w",
             workspacePath,
             ...envArgs,

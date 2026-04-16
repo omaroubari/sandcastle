@@ -92,4 +92,14 @@ describe("docker()", () => {
     const provider = docker();
     expect(provider.env).toEqual({});
   });
+
+  it("accepts a network option as a string", () => {
+    const provider = docker({ network: "my-network" });
+    expect(provider.tag).toBe("bind-mount");
+  });
+
+  it("accepts a network option as an array", () => {
+    const provider = docker({ network: ["net1", "net2"] });
+    expect(provider.tag).toBe("bind-mount");
+  });
 });

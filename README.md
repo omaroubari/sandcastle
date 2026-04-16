@@ -142,6 +142,8 @@ const result = await run({
     ],
     // Optional: provider-level env vars merged at launch time
     env: { DOCKER_SPECIFIC: "value" },
+    // Optional: attach container to Docker network(s) — string or string[]
+    network: "my-network",
   }),
 
   // Branch strategy — controls how the agent's changes relate to branches.

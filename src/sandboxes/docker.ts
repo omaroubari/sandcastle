@@ -46,6 +46,15 @@ export interface DockerOptions {
   readonly mounts?: readonly MountConfig[];
   /** Environment variables injected by this provider. Merged at launch time with env resolver and agent provider env. */
   readonly env?: Record<string, string>;
+  /**
+   * Docker network(s) to attach the container to.
+   *
+   * - `"my-network"` → `--network my-network`
+   * - `["net1", "net2"]` → `--network net1 --network net2`
+   *
+   * When omitted, Docker's default bridge network is used.
+   */
+  readonly network?: string | readonly string[];
 }
 
 /**
@@ -98,6 +107,7 @@ export const docker = (options?: DockerOptions): SandboxProvider => {
             volumeMounts,
             workdir: workspacePath,
             user: `${hostUid}:${hostGid}`,
+            network: options?.network,
           },
         ).pipe(
           Effect.andThen(

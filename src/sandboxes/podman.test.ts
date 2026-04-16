@@ -358,6 +358,98 @@ describe("podman()", () => {
     }
   });
 
+  it("accepts a network option as a string", () => {
+    const provider = podman({ network: "my-network" });
+    expect(provider.tag).toBe("bind-mount");
+  });
+
+  it("accepts a network option as an array", () => {
+    const provider = podman({ network: ["net1", "net2"] });
+    expect(provider.tag).toBe("bind-mount");
+  });
+
+  it("passes --network flag when network is a string", async () => {
+    mockExecFile.mockImplementation((_command, _args, callback: any) => {
+      callback(null, "", "");
+      return undefined as any;
+    });
+
+    const provider = podman({ network: "my-network" });
+    const handle = await provider.create({
+      workspacePath: "/tmp/worktree",
+      hostRepoPath: "/tmp/repo",
+      mounts: [
+        { hostPath: "/tmp/worktree", sandboxPath: "/home/agent/workspace" },
+      ],
+      env: {},
+    });
+
+    const runArgs = mockExecFile.mock.calls.find(
+      ([, args]) => Array.isArray(args) && args[0] === "run",
+    )?.[1] as string[];
+
+    const networkIdx = runArgs.indexOf("--network");
+    expect(networkIdx).toBeGreaterThan(-1);
+    expect(runArgs[networkIdx + 1]).toBe("my-network");
+
+    await handle.close();
+  });
+
+  it("passes multiple --network flags when network is an array", async () => {
+    mockExecFile.mockImplementation((_command, _args, callback: any) => {
+      callback(null, "", "");
+      return undefined as any;
+    });
+
+    const provider = podman({ network: ["net1", "net2"] });
+    const handle = await provider.create({
+      workspacePath: "/tmp/worktree",
+      hostRepoPath: "/tmp/repo",
+      mounts: [
+        { hostPath: "/tmp/worktree", sandboxPath: "/home/agent/workspace" },
+      ],
+      env: {},
+    });
+
+    const runArgs = mockExecFile.mock.calls.find(
+      ([, args]) => Array.isArray(args) && args[0] === "run",
+    )?.[1] as string[];
+
+    const firstIdx = runArgs.indexOf("--network");
+    expect(firstIdx).toBeGreaterThan(-1);
+    expect(runArgs[firstIdx + 1]).toBe("net1");
+    const secondIdx = runArgs.indexOf("--network", firstIdx + 1);
+    expect(secondIdx).toBeGreaterThan(-1);
+    expect(runArgs[secondIdx + 1]).toBe("net2");
+
+    await handle.close();
+  });
+
+  it("does not pass --network flag when network is omitted", async () => {
+    mockExecFile.mockImplementation((_command, _args, callback: any) => {
+      callback(null, "", "");
+      return undefined as any;
+    });
+
+    const provider = podman();
+    const handle = await provider.create({
+      workspacePath: "/tmp/worktree",
+      hostRepoPath: "/tmp/repo",
+      mounts: [
+        { hostPath: "/tmp/worktree", sandboxPath: "/home/agent/workspace" },
+      ],
+      env: {},
+    });
+
+    const runArgs = mockExecFile.mock.calls.find(
+      ([, args]) => Array.isArray(args) && args[0] === "run",
+    )?.[1] as string[];
+
+    expect(runArgs).not.toContain("--network");
+
+    await handle.close();
+  });
+
   it("includes timeout on signal handler cleanup", async () => {
     // Allow image inspect + podman run to succeed
     mockExecFile.mockImplementation((_command, _args, callback: any) => {
