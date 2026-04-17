@@ -1,5 +1,21 @@
 # @ai-hero/sandcastle
 
+## 0.4.8
+
+### Patch Changes
+
+- c8cfcc6: Add timeout to the isolated provider `copyPaths` loop in `startSandbox`. The entire copy loop is now wrapped with `withTimeout` (120s), producing a `CopyToWorktreeTimeoutError` on expiry, consistent with the per-step timeout pattern used elsewhere in the sandbox lifecycle.
+- bab11e9: Add `network` option to Docker and Podman sandbox providers for custom container networking
+- a2c580f: Make Dockerfile generation aware of the selected backlog manager. When "beads" is chosen, the Dockerfile installs beads CLI tools instead of GitHub CLI.
+- a2fd5ad: Generate `.env.example` dynamically during `sandcastle init` based on selected agent and backlog manager instead of copying a static file from the template directory.
+- 20741fe: Fix parallel-planner templates to use {{CLOSE_TASK_COMMAND}} placeholder instead of hardcoded "close the issue" language, and replace "GitHub issue" with backlog-agnostic wording
+- b7880ec: Make `prompt`/`promptFile` optional in `interactive()` — when neither is provided, the agent TUI launches with no initial prompt (the full prompt pipeline is skipped).
+- aea1131: Add per-step timeouts across the sandbox lifecycle. Every lifecycle step is now wrapped with `Effect.timeoutFail` via a `withTimeout` utility, producing a step-specific tagged error on expiry. Breaking: `TimeoutError` renamed to `AgentIdleTimeoutError` with `timeoutMs` field replacing `idleTimeoutSeconds`.
+- c261079: Support relative paths in MountConfig for bind-mount sandbox providers. `hostPath` relative paths resolve from `process.cwd()`, and `sandboxPath` relative paths resolve from the sandbox repo directory.
+- d13acc3: Remove unnecessary `copyToWorktree` and `branchStrategy` from planner and merger agents in parallel planner templates. These lightweight agents (maxIterations: 1) now default to head mode, avoiding the overhead of copying node_modules into worktrees.
+- 0f8a99a: Remove semaphore concurrency limiter from parallel-planner-with-review template. Issue pipelines now run concurrently via Promise.allSettled without a concurrency cap, matching the parallel-planner template.
+- bf23e83: Rename workspace terminology back to worktree across the codebase. All public API types and functions renamed from `Workspace*` to `Worktree*` (e.g. `createWorktree()`, `Worktree`, `WorktreeBranchStrategy`). `copyToWorkspace` renamed to `copyToWorktree`. `sandboxWorkspacePath` renamed to `sandboxRepoPath` and `SANDBOX_WORKSPACE_DIR` to `SANDBOX_REPO_DIR` for sandbox-internal paths. Source files renamed accordingly (`WorktreeManager.ts`, `CopyToWorktree.ts`, `createWorktree.ts`).
+
 ## 0.4.7
 
 ### Patch Changes
